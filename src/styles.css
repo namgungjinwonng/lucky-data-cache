@@ -96,18 +96,19 @@ button:disabled { cursor: not-allowed; opacity: .35; }
 .results__count { color: var(--body); font-size: 10px; letter-spacing: .8px; white-space: nowrap; }
 .results { padding: 56px 24px; background: var(--result-bg); color: var(--result-ink); }
 .result-list { border-top: 1px solid var(--result-line); }
-.result-card { padding: 24px 0; border-bottom: 1px solid var(--result-line); }
-.result-card__top { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
-.result-card__top > strong { color: var(--primary); font-size: 18px; font-weight: 800; }
-.result-card__top small { color: var(--result-muted); font-size: 8px; letter-spacing: .7px; }
-.result-card__index { color: var(--result-muted); font-size: 10px; font-weight: 700; letter-spacing: 1.3px; }
+.result-card { padding: 5px 0; border-bottom: 1px solid var(--result-line); }
+.result-card__top { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; line-height: 1; }
+.result-card__top > strong { color: var(--primary); font-size: 14px; font-weight: 800; }
+.result-card__top small { color: var(--result-muted); font-size: 6px; letter-spacing: .5px; }
+.result-card__index { color: var(--result-muted); font-size: 8px; font-weight: 700; letter-spacing: 1px; }
 .result-card__numbers, .draw-detail__numbers { display: flex; align-items: center; justify-content: space-between; gap: 7px; }
 .number-ball { display: grid; width: clamp(40px, 11.5vw, 54px); aspect-ratio: 1; place-items: center; border-radius: 50%; background: #e8e8e8; color: #181818; font-size: 16px; font-weight: 750; }
 .number-ball--compact { width: 31px; border: 1px solid rgba(255,255,255,.55); background: transparent; color: #fff; font-size: 11px; }
 .number-ball--red:not(.number-ball--compact) { background: var(--primary); color: #fff; }
 .number-ball--grey:not(.number-ball--compact) { background: #343434; color: #fff; }
 .number-ball--blue:not(.number-ball--compact), .number-ball--green:not(.number-ball--compact), .number-ball--yellow:not(.number-ball--compact) { border: 1px solid #bdbdbd; background: #fff; }
-.result-card__telemetry { display: flex; flex-wrap: wrap; gap: 10px 20px; margin-top: 16px; color: var(--result-muted); font-size: 10px; letter-spacing: .3px; }
+.result-card .number-ball { width: 32px; font-size: 12px; }
+.result-card__telemetry { display: grid; grid-template-columns: repeat(4, auto); justify-content: start; gap: 3px 12px; margin-top: 6px; color: var(--result-muted); font-size: 8px; line-height: 1.2; letter-spacing: .1px; }
 .result-card__telemetry b { margin-left: 3px; color: var(--result-ink); }
 .loading-copy { color: var(--result-muted); font-size: 13px; }
 
