@@ -50,3 +50,4 @@
 - 사용자가 처음 말한 토요일 00시는 일요일 00시를 뜻했다. 예약 실행 시각은 UTC 기준으로 일요일 00시 KST가 토요일 15시, 일요일 05시 KST가 토요일 20시다.
 - 서명키와 비밀번호는 저장소에 커밋하지 않고 GitHub Actions 암호화 Secret으로만 제공한다.
 - 테스트 13개와 Android 자산 동기화는 통과했다. 로컬 release Gradle 빌드는 코드 오류가 아니라 로컬 Java 미설치로 실행할 수 없어 원격 Actions에서 최종 검증한다.
+- PKCS12 서명키를 `release-signing` Git 제외 폴더에 생성하고 4개 서명 값을 GitHub Actions Repository Secrets에 등록했다. 화면에는 Secret 이름만 노출되는 것을 확인했다.

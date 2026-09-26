@@ -37,5 +37,5 @@
 - [x] GitHub Actions release APK 빌드·업로드 구성
 - [x] 일요일 00시·일요일 05시 KST 데이터 수집 일정 구성
 - [ ] 테스트와 로컬 release 빌드 검증
-- [ ] 고정 서명키 생성 및 GitHub Actions Secret 등록
+- [x] 고정 서명키 생성 및 GitHub Actions Secret 등록
 - [ ] 원격 release APK 빌드 성공 확인
