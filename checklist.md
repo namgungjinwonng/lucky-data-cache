@@ -33,3 +33,9 @@
 - [x] 의미 단위 커밋과 GitHub 푸시
 - [x] 추천 TOP 10 카드 높이를 한 화면용 고밀도 레이아웃으로 축소
 - [x] 모바일 미리보기와 빌드 검증 후 GitHub 반영
+- [x] Android release 서명과 자동 versionCode 구성
+- [x] GitHub Actions release APK 빌드·업로드 구성
+- [x] 일요일 00시·일요일 05시 KST 데이터 수집 일정 구성
+- [ ] 테스트와 로컬 release 빌드 검증
+- [ ] 고정 서명키 생성 및 GitHub Actions Secret 등록
+- [ ] 원격 release APK 빌드 성공 확인

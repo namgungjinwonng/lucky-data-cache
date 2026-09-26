@@ -1,4 +1,4 @@
-name: Build Android APK
+name: Build Release APK
 
 on:
   push:
@@ -22,12 +22,35 @@ jobs:
       - run: npm run android:sync
         env:
           VITE_KAKAO_MAP_JAVASCRIPT_KEY: ${{ secrets.KAKAO_MAP_JAVASCRIPT_KEY }}
+      - name: Check release signing secrets
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          test -n "$ANDROID_KEYSTORE_BASE64"
+          test -n "$ANDROID_KEYSTORE_PASSWORD"
+          test -n "$ANDROID_KEY_ALIAS"
+          test -n "$ANDROID_KEY_PASSWORD"
+      - name: Restore release keystore
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        run: printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > android/app/lucky45-release.p12
       - run: chmod +x android/gradlew
-      - name: Build debug APK
+      - name: Build signed release APK
         working-directory: android
-        run: ./gradlew assembleDebug
+        env:
+          ANDROID_KEYSTORE_FILE: lucky45-release.p12
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          ANDROID_VERSION_CODE: ${{ github.run_number }}
+          ANDROID_VERSION_NAME: 1.0.${{ github.run_number }}
+        run: ./gradlew assembleRelease
       - uses: actions/upload-artifact@v4
         with:
-          name: lucky-45-debug-apk
-          path: android/app/build/outputs/apk/debug/app-debug.apk
+          name: lucky-45-release-apk
+          path: android/app/build/outputs/apk/release/app-release.apk
           if-no-files-found: error
+          retention-days: 30

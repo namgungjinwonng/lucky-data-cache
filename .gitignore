@@ -13,3 +13,7 @@ android/.gradle/
 android/local.properties
 android/app/build/
 android/build/
+*.jks
+*.keystore
+*.p12
+release-signing/

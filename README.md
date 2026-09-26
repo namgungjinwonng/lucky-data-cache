@@ -34,7 +34,16 @@ npm run build
 npm run android:sync
 ```
 
-APK는 GitHub Actions의 `Build Android APK` 실행 결과에서 받을 수 있습니다.
+APK는 GitHub Actions의 `Build Release APK` 실행 결과에서 `lucky-45-release-apk`를 내려받아 설치할 수 있습니다. Actions 실행 번호가 Android `versionCode`가 되므로 동일한 서명키로 만든 다음 버전을 기존 앱 위에 설치할 수 있습니다.
+
+## Release APK 서명
+
+GitHub Actions에는 아래 네 가지 Repository secret이 필요합니다. 서명키 원본과 비밀번호는 저장소에 커밋하지 않고 별도로 안전하게 백업해야 합니다. 서명키를 잃으면 기존 설치 앱을 업데이트할 수 없습니다.
+
+- `ANDROID_KEYSTORE_BASE64`는 PKCS12 서명키 파일 전체를 Base64로 변환한 값입니다.
+- `ANDROID_KEYSTORE_PASSWORD`는 키 저장소 비밀번호입니다.
+- `ANDROID_KEY_ALIAS`는 서명키 별칭이며 기본값은 `lucky45`입니다.
+- `ANDROID_KEY_PASSWORD`는 개별 키 비밀번호입니다.
 
 ## Kakao Maps 설정
 
@@ -49,7 +58,7 @@ Kakao Developers에서 앱을 만든 뒤 JavaScript 키를 발급하고 JavaScri
 
 ## 데이터 흐름
 
-매주 일요일 GitHub Actions가 동행복권의 공개 응답을 확인해 최신 회차, 역대 회차와 회차별 당첨 판매점을 갱신합니다. 전국 판매점 목록은 28일마다 새로 확인합니다. 설치된 APK는 실행할 때 GitHub 원격 JSON을 확인하므로 앱을 다시 설치하지 않아도 최신 데이터를 표시합니다.
+매주 일요일 00시와 일요일 05시 KST에 GitHub Actions가 동행복권의 공개 응답을 확인해 최신 회차, 역대 회차와 회차별 당첨 판매점을 갱신합니다. 자정에 새 회차를 1차 수집하고 새벽 5시에 한 번 더 확인합니다. 전국 판매점 목록은 28일마다 새로 확인합니다. 설치된 APK는 실행할 때 GitHub 원격 JSON을 확인하므로 앱을 다시 설치하지 않아도 최신 데이터를 표시합니다.
 
 - `public/data/history.json`은 1회부터 최신 회차까지의 당첨번호입니다.
 - `data/winners/####.json`은 회차별 1·2등 당첨 판매점입니다.

@@ -2,7 +2,10 @@ name: Update draw data
 
 on:
   schedule:
-    - cron: '30 0 * * 0'
+    # 일요일 00:00 KST
+    - cron: '0 15 * * 6'
+    # 일요일 05:00 KST
+    - cron: '0 20 * * 6'
   workflow_dispatch:
 
 permissions:
