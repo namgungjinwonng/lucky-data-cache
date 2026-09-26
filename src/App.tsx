@@ -1,119 +1,67 @@
-// 럭셔리 모터스포츠 분위기의 로또 번호 생성 화면과 상호작용을 제공하는 컴포넌트
+// 통계 추천·역대 당첨점·주변 판매점 지도를 제공하는 LUCKY 45 모바일 앱 화면
 import { useEffect, useMemo, useState } from 'react'
+import { StoreMap } from './components/StoreMap'
+import { JACKPOT_ODDS, rankCombinations } from './core/analysis'
 import { type DrawSyncResult, syncLatestDraw } from './core/draw-data'
-import { ballTone, generateGames } from './core/lotto'
+import { type HistoryDataset, type WinnerStoreDataset, syncHistoryDataset, syncWinnerStores } from './core/history-data'
+import { ballTone } from './core/lotto'
 
-type SelectionMode = 'fixed' | 'excluded'
-
-interface SavedRun {
-  id: string
-  createdAt: string
-  games: number[][]
-}
-
-const HISTORY_KEY = 'lucky45.history'
+type AppMenu = 'ranking' | 'history' | 'nearby'
 
 function NumberBall({ number, compact = false }: { number: number; compact?: boolean }) {
-  return (
-    <span className={`number-ball number-ball--${ballTone(number)} ${compact ? 'number-ball--compact' : ''}`}>
-      {number}
-    </span>
-  )
-}
-
-function readHistory(): SavedRun[] {
-  try {
-    const value: unknown = JSON.parse(localStorage.getItem(HISTORY_KEY) ?? '[]')
-    return Array.isArray(value) ? (value as SavedRun[]).slice(0, 5) : []
-  } catch {
-    return []
-  }
+  return <span className={`number-ball number-ball--${ballTone(number)} ${compact ? 'number-ball--compact' : ''}`}>{number}</span>
 }
 
 function App() {
-  const [gameCount, setGameCount] = useState(1)
-  const [mode, setMode] = useState<SelectionMode>('fixed')
-  const [fixed, setFixed] = useState<number[]>([])
-  const [excluded, setExcluded] = useState<number[]>([])
-  const [games, setGames] = useState<number[][]>(() => generateGames({ count: 1 }))
-  const [history, setHistory] = useState<SavedRun[]>(readHistory)
+  const [menu, setMenu] = useState<AppMenu>('ranking')
   const [drawResult, setDrawResult] = useState<DrawSyncResult | null>(null)
-  const [drawLoading, setDrawLoading] = useState(true)
-  const [message, setMessage] = useState('조건을 정하고 스타트 버튼을 눌러보세요.')
+  const [history, setHistory] = useState<HistoryDataset | null>(null)
+  const [selectedRound, setSelectedRound] = useState(0)
+  const [winnerStores, setWinnerStores] = useState<WinnerStoreDataset | null>(null)
+  const [winnerStatus, setWinnerStatus] = useState('')
+  const [loading, setLoading] = useState(true)
 
   useEffect(() => {
     let active = true
-    syncLatestDraw()
-      .then((result) => {
-        if (active) setDrawResult(result)
-      })
-      .finally(() => {
-        if (active) setDrawLoading(false)
-      })
-
-    return () => {
-      active = false
-    }
+    Promise.allSettled([syncLatestDraw(), syncHistoryDataset()]).then(([latestResult, historyResult]) => {
+      if (!active) return
+      if (latestResult.status === 'fulfilled') setDrawResult(latestResult.value)
+      if (historyResult.status === 'fulfilled') {
+        setHistory(historyResult.value)
+        setSelectedRound(historyResult.value.draws[0].round)
+      }
+      setLoading(false)
+    })
+    return () => { active = false }
   }, [])
 
-  const selectionLabel = useMemo(() => {
-    if (fixed.length === 0 && excluded.length === 0) return '완전 자동 모드'
-    return `고정 ${fixed.length} · 제외 ${excluded.length}`
-  }, [excluded.length, fixed.length])
+  useEffect(() => {
+    if (menu !== 'history' || !history || selectedRound < 1) return
+    let active = true
+    setWinnerStores(null)
+    setWinnerStatus('당첨 판매점을 불러오고 있습니다.')
+    syncWinnerStores(selectedRound, history.draws[0].round)
+      .then((dataset) => {
+        if (!active) return
+        setWinnerStores(dataset)
+        setWinnerStatus(dataset.stores.length > 0 ? '' : '이 회차의 당첨 판매점 정보가 없습니다.')
+      })
+      .catch((error: unknown) => {
+        if (active) setWinnerStatus(error instanceof Error ? error.message : '당첨 판매점을 불러오지 못했습니다.')
+      })
+    return () => { active = false }
+  }, [history, menu, selectedRound])
 
-  const toggleNumber = (number: number) => {
-    if (mode === 'fixed') {
-      if (fixed.includes(number)) {
-        setFixed(fixed.filter((value) => value !== number))
-        return
-      }
-      if (fixed.length >= 6) {
-        setMessage('고정수는 최대 6개까지 선택할 수 있습니다.')
-        return
-      }
-      setFixed([...fixed, number].sort((a, b) => a - b))
-      setExcluded(excluded.filter((value) => value !== number))
-      return
-    }
+  const rankings = useMemo(() => history ? rankCombinations(history.draws) : [], [history])
+  const selectedDraw = useMemo(() => history?.draws.find((draw) => draw.round === selectedRound) ?? null, [history, selectedRound])
+  const latestRound = history?.draws[0].round ?? drawResult?.draw.round ?? 0
 
-    if (excluded.includes(number)) {
-      setExcluded(excluded.filter((value) => value !== number))
-      return
-    }
-    if (45 - excluded.length <= 6 - fixed.length) {
-      setMessage('번호를 만들 수 있도록 선택 가능한 번호를 남겨주세요.')
-      return
-    }
-    setExcluded([...excluded, number].sort((a, b) => a - b))
-    setFixed(fixed.filter((value) => value !== number))
-  }
-
-  const runGenerator = () => {
-    try {
-      const nextGames = generateGames({ count: gameCount, fixed, excluded })
-      setGames(nextGames)
-      setMessage(`${gameCount}게임의 스타팅 그리드가 준비됐습니다.`)
-      navigator.vibrate?.(35)
-
-      const nextHistory = [
-        { id: crypto.randomUUID(), createdAt: new Date().toISOString(), games: nextGames },
-        ...history,
-      ].slice(0, 5)
-      setHistory(nextHistory)
-      localStorage.setItem(HISTORY_KEY, JSON.stringify(nextHistory))
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : '번호 생성에 실패했습니다.')
-    }
-  }
-
-  const resetSelection = () => {
-    setFixed([])
-    setExcluded([])
-    setMessage('선택 조건을 초기화했습니다.')
+  const moveRound = (delta: number) => {
+    setSelectedRound((round) => Math.min(latestRound, Math.max(1, round + delta)))
   }
 
   return (
-    <main className="app-shell">
+    <main className="app-shell" id="top">
       <header className="topbar">
         <a className="brand" href="#top" aria-label="LUCKY 45 홈">
           <span className="brand__mark">L45</span>
@@ -122,153 +70,90 @@ function App() {
         <span className="topbar__edition">SEOUL · 2026</span>
       </header>
 
-      <section className="hero" id="top">
+      <section className="hero">
         <div className="hero__line" aria-hidden="true" />
         <div className="hero__eyebrow">RACING FOR LUCK</div>
-        <h1>
-          행운의
-          <br />
-          스타팅 그리드
-        </h1>
-        <p>여섯 개의 숫자에서 시작하는 가장 짜릿한 주말.</p>
-        <div className="hero__meter" aria-hidden="true">
-          <span>01</span>
-          <div><i /></div>
-          <span>45</span>
-        </div>
+        <h1>데이터로<br />고른 행운</h1>
+        <p>역대 {history ? history.draws.length.toLocaleString('ko-KR') : '—'}개 회차의 패턴을 정밀하게 비교한 이번 주 스타팅 그리드.</p>
+        <div className="hero__meter" aria-hidden="true"><span>01</span><div><i /></div><span>45</span></div>
       </section>
 
       <section className="latest-band" aria-live="polite">
         <div>
           <span className="section-label">LATEST RESULT</span>
-          <h2>{drawLoading ? '데이터 동기화 중' : drawResult ? `${drawResult.draw.round}회` : '오프라인'}</h2>
-          <p>
-            {drawResult
-              ? `${drawResult.draw.date} · ${drawResult.source === 'remote' ? '최신 데이터' : '저장 데이터'}`
-              : '번호 생성 기능은 정상적으로 사용할 수 있습니다.'}
-          </p>
+          <h2>{loading ? '데이터 동기화 중' : drawResult ? `${drawResult.draw.round}회` : '오프라인'}</h2>
+          <p>{drawResult ? `${drawResult.draw.date} · ${drawResult.source === 'remote' ? '최신 데이터' : '저장 데이터'}` : '내장 데이터로 분석을 계속합니다.'}</p>
         </div>
-        {drawResult && (
-          <div className="latest-band__numbers">
-            {drawResult.draw.numbers.map((number) => <NumberBall key={number} number={number} compact />)}
-            <span className="plus">+</span>
-            <NumberBall number={drawResult.draw.bonus} compact />
-          </div>
-        )}
+        {drawResult && <div className="latest-band__numbers">
+          {drawResult.draw.numbers.map((number) => <NumberBall key={number} number={number} compact />)}
+          <span className="plus">+</span><NumberBall number={drawResult.draw.bonus} compact />
+        </div>}
       </section>
 
-      <section className="garage">
-        <div className="section-heading">
-          <div>
-            <span className="section-label">01 · RACE SETUP</span>
-            <h2>게임 설정</h2>
-          </div>
-          <span className="selection-status">{selectionLabel}</span>
-        </div>
+      <nav className="app-menu" aria-label="주요 메뉴">
+        <button className={menu === 'ranking' ? 'is-active' : ''} type="button" onClick={() => setMenu('ranking')}><span>01</span>추천 TOP 10</button>
+        <button className={menu === 'history' ? 'is-active' : ''} type="button" onClick={() => setMenu('history')}><span>02</span>회차·당첨점</button>
+        <button className={menu === 'nearby' ? 'is-active' : ''} type="button" onClick={() => setMenu('nearby')}><span>03</span>주변 판매점</button>
+      </nav>
 
-        <div className="game-count" aria-label="게임 수 선택">
-          {[1, 2, 3, 4, 5].map((count) => (
-            <button
-              className={gameCount === count ? 'is-active' : ''}
-              key={count}
-              type="button"
-              onClick={() => setGameCount(count)}
-            >
-              <strong>{String(count).padStart(2, '0')}</strong>
-              <span>GAME</span>
-            </button>
-          ))}
-        </div>
+      {menu === 'ranking' && <>
+        <section className="analysis-intro">
+          <span className="section-label">NEXT · {latestRound ? latestRound + 1 : '—'} ROUND</span>
+          <h2>패턴 적합도 순위</h2>
+          <p>전체 빈도 24% · 최근 가중 빈도 27% · 번호 쌍 24% · 합계와 홀짝 균형 25%를 결합했습니다.</p>
+          <div className="odds-notice"><strong>실제 1등 확률은 모두 동일</strong><span>1 / {JACKPOT_ODDS.toLocaleString('ko-KR')}</span><small>아래 점수는 과거 패턴과의 유사도이며 당첨확률이 아닙니다.</small></div>
+        </section>
 
-        <div className="mode-switch" role="group" aria-label="번호 선택 방식">
-          <button className={mode === 'fixed' ? 'is-active' : ''} type="button" onClick={() => setMode('fixed')}>
-            고정수 선택
-          </button>
-          <button className={mode === 'excluded' ? 'is-active' : ''} type="button" onClick={() => setMode('excluded')}>
-            제외수 선택
-          </button>
-          <button type="button" onClick={resetSelection}>초기화</button>
-        </div>
-
-        <div className="number-grid">
-          {Array.from({ length: 45 }, (_, index) => index + 1).map((number) => {
-            const isFixed = fixed.includes(number)
-            const isExcluded = excluded.includes(number)
-            return (
-              <button
-                className={`${isFixed ? 'is-fixed' : ''} ${isExcluded ? 'is-excluded' : ''}`}
-                key={number}
-                type="button"
-                onClick={() => toggleNumber(number)}
-                aria-pressed={isFixed || isExcluded}
-                aria-label={`${number}번 ${isFixed ? '고정수' : isExcluded ? '제외수' : '선택 안 됨'}`}
-              >
-                {number}
-              </button>
-            )
-          })}
-        </div>
-
-        <button className="start-button" type="button" onClick={runGenerator}>
-          <span>START YOUR LUCK</span>
-          <span aria-hidden="true">→</span>
-        </button>
-        <p className="status-message" role="status">{message}</p>
-      </section>
-
-      <section className="results">
-        <div className="section-heading section-heading--light">
-          <div>
-            <span className="section-label">02 · STARTING GRID</span>
-            <h2>행운의 번호</h2>
-          </div>
-          <span className="results__count">{games.length} ENTRIES</span>
-        </div>
-
-        <div className="result-list">
-          {games.map((game, gameIndex) => {
-            const oddCount = game.filter((number) => number % 2 === 1).length
-            return (
-              <article className="result-card" key={`${gameIndex}-${game.join('-')}`}>
-                <div className="result-card__index">GRID {String(gameIndex + 1).padStart(2, '0')}</div>
-                <div className="result-card__numbers">
-                  {game.map((number) => <NumberBall key={number} number={number} />)}
-                </div>
+        <section className="results">
+          <div className="section-heading section-heading--light"><div><span className="section-label">STARTING GRID</span><h2>추천 조합 10</h2></div><span className="results__count">WEEKLY FIXED</span></div>
+          {rankings.length === 0 ? <p className="loading-copy">역대 데이터를 분석하고 있습니다.</p> : <div className="result-list">
+            {rankings.map((item) => {
+              const oddCount = item.numbers.filter((number) => number % 2 === 1).length
+              return <article className="result-card" key={item.numbers.join('-')}>
+                <div className="result-card__top"><span className="result-card__index">RANK {String(item.rank).padStart(2, '0')}</span><strong>{item.score.toFixed(1)}<small> PATTERN</small></strong></div>
+                <div className="result-card__numbers">{item.numbers.map((number) => <NumberBall key={number} number={number} />)}</div>
                 <div className="result-card__telemetry">
-                  <span>합계 <b>{game.reduce((sum, number) => sum + number, 0)}</b></span>
+                  <span>합계 <b>{item.numbers.reduce((sum, number) => sum + number, 0)}</b></span>
                   <span>홀짝 <b>{oddCount}:{6 - oddCount}</b></span>
+                  <span>최근 <b>{item.components.recent}</b></span>
+                  <span>번호쌍 <b>{item.components.pairs}</b></span>
                 </div>
               </article>
-            )
-          })}
-        </div>
-      </section>
+            })}
+          </div>}
+        </section>
+      </>}
 
-      <section className="history-section">
-        <div className="section-heading">
-          <div>
-            <span className="section-label">03 · PIT LOG</span>
-            <h2>최근 기록</h2>
-          </div>
+      {menu === 'history' && <section className="history-browser">
+        <div className="section-heading"><div><span className="section-label">DRAW ARCHIVE</span><h2>회차별 결과</h2></div><span className="results__count">1 — {latestRound || '—'}</span></div>
+        <div className="round-control">
+          <button type="button" onClick={() => moveRound(-1)} disabled={selectedRound <= 1}>←</button>
+          <label><span>조회 회차</span><input type="number" min="1" max={latestRound} value={selectedRound || ''} onChange={(event) => setSelectedRound(Math.min(latestRound, Math.max(1, Number(event.target.value) || 1)))} /></label>
+          <button type="button" onClick={() => moveRound(1)} disabled={selectedRound >= latestRound}>→</button>
         </div>
-        {history.length === 0 ? (
-          <p className="empty-history">번호를 생성하면 최근 기록 5개를 기기에 보관합니다.</p>
-        ) : (
-          <div className="history-list">
-            {history.map((run) => (
-              <article key={run.id}>
-                <time>{new Date(run.createdAt).toLocaleString('ko-KR', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })}</time>
-                <span>{run.games.map((game) => game.join(' · ')).join(' / ')}</span>
-              </article>
-            ))}
-          </div>
-        )}
-      </section>
+        {selectedDraw && <article className="draw-detail">
+          <div><span>{selectedDraw.date}</span><h3>{selectedDraw.round}회 당첨번호</h3></div>
+          <div className="draw-detail__numbers">{selectedDraw.numbers.map((number) => <NumberBall key={number} number={number} />)}<span className="plus plus--dark">+</span><NumberBall number={selectedDraw.bonus} /></div>
+          <p>1등 {selectedDraw.winners.toLocaleString('ko-KR')}명 · 1인당 {selectedDraw.firstPrize.toLocaleString('ko-KR')}원</p>
+        </article>}
+        <div className="winner-heading"><h3>1·2등 당첨 판매점</h3>{winnerStores && <span>{winnerStores.stores.reduce((sum, store) => sum + store.winCount, 0)}건</span>}</div>
+        {winnerStatus && <p className="status-message">{winnerStatus}</p>}
+        {winnerStores && <div className="winner-list">{winnerStores.stores.map((store) => <article key={`${store.id}-${store.rank}-${store.method}`}>
+          <span className={`winner-rank winner-rank--${store.rank}`}>{store.rank}등</span>
+          <div><h4>{store.name}{store.winCount > 1 && ` ×${store.winCount}`}</h4><p>{store.address}</p><small>{store.method || '선택 방식 미표기'}{store.phone ? ` · ${store.phone}` : ''}</small></div>
+        </article>)}</div>}
+      </section>}
+
+      {menu === 'nearby' && <section className="nearby-section">
+        <div className="section-heading"><div><span className="section-label">NEARBY GARAGE</span><h2>내 주변 판매점</h2></div></div>
+        <p className="section-description">전국 공식 판매점 좌표를 현재 위치와 비교해 가까운 순으로 보여줍니다.</p>
+        <StoreMap />
+      </section>}
 
       <footer>
         <span className="brand__mark">L45</span>
-        <p>무작위 번호 생성은 당첨을 보장하지 않습니다. 복권은 계획적으로 즐겨주세요.</p>
-        <small>19세 미만 구매 불가 · 데이터 출처 동행복권</small>
+        <p>패턴 점수는 당첨을 예측하거나 보장하지 않습니다. 복권은 계획적으로 즐겨주세요.</p>
+        <small>19세 미만 구매 불가 · 데이터 출처 동행복권 · 지도 OpenStreetMap</small>
       </footer>
     </main>
   )
