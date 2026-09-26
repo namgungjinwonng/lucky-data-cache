@@ -14,7 +14,7 @@
 - [x] npm 의존성 설치 및 단위 테스트
 - [x] Capacitor Android 프로젝트 생성
 - [x] 웹 빌드 및 모바일 화면 검증
-- [ ] GitHub Actions APK 빌드 검증
+- [x] 기능 커밋 기준 GitHub Actions APK 빌드 검증
 - [x] 공식 역대 회차 데이터 수집 및 무결성 검증
 - [x] 회차별 1·2등 당첨 판매점 데이터 수집
 - [x] 전국 로또 판매점 좌표 데이터 수집
