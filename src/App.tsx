@@ -7,6 +7,15 @@ import { type HistoryDataset, type WinnerStoreDataset, syncHistoryDataset, syncW
 import { ballTone } from './core/lotto'
 
 type AppMenu = 'ranking' | 'history' | 'nearby'
+type Theme = 'light' | 'dark'
+
+const THEME_KEY = 'lucky45.theme'
+
+function readTheme(): Theme {
+  const saved = localStorage.getItem(THEME_KEY)
+  if (saved === 'light' || saved === 'dark') return saved
+  return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
+}
 
 function NumberBall({ number, compact = false }: { number: number; compact?: boolean }) {
   return <span className={`number-ball number-ball--${ballTone(number)} ${compact ? 'number-ball--compact' : ''}`}>{number}</span>
@@ -14,12 +23,18 @@ function NumberBall({ number, compact = false }: { number: number; compact?: boo
 
 function App() {
   const [menu, setMenu] = useState<AppMenu>('ranking')
+  const [theme, setTheme] = useState<Theme>(readTheme)
   const [drawResult, setDrawResult] = useState<DrawSyncResult | null>(null)
   const [history, setHistory] = useState<HistoryDataset | null>(null)
   const [selectedRound, setSelectedRound] = useState(0)
   const [winnerStores, setWinnerStores] = useState<WinnerStoreDataset | null>(null)
   const [winnerStatus, setWinnerStatus] = useState('')
   const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    document.documentElement.dataset.theme = theme
+    localStorage.setItem(THEME_KEY, theme)
+  }, [theme])
 
   useEffect(() => {
     let active = true
@@ -67,7 +82,10 @@ function App() {
           <span className="brand__mark">L45</span>
           <span className="brand__wordmark">LUCKY 45</span>
         </a>
-        <span className="topbar__edition">SEOUL · 2026</span>
+        <div className="theme-switch" role="group" aria-label="화면 테마 선택">
+          <button className={theme === 'light' ? 'is-active' : ''} type="button" onClick={() => setTheme('light')}>LIGHT</button>
+          <button className={theme === 'dark' ? 'is-active' : ''} type="button" onClick={() => setTheme('dark')}>DARK</button>
+        </div>
       </header>
 
       <section className="hero">
@@ -100,7 +118,7 @@ function App() {
         <section className="analysis-intro">
           <span className="section-label">NEXT · {latestRound ? latestRound + 1 : '—'} ROUND</span>
           <h2>패턴 적합도 순위</h2>
-          <p>전체 빈도 24% · 최근 가중 빈도 27% · 번호 쌍 24% · 합계와 홀짝 균형 25%를 결합했습니다.</p>
+          <p>전체 빈도 24% · 최근 가중 빈도 27% · 번호 쌍 24% · 조합 형태 25%를 결합했습니다.</p>
           <div className="odds-notice"><strong>실제 1등 확률은 모두 동일</strong><span>1 / {JACKPOT_ODDS.toLocaleString('ko-KR')}</span><small>아래 점수는 과거 패턴과의 유사도이며 당첨확률이 아닙니다.</small></div>
         </section>
 
@@ -114,7 +132,7 @@ function App() {
                 <div className="result-card__numbers">{item.numbers.map((number) => <NumberBall key={number} number={number} />)}</div>
                 <div className="result-card__telemetry">
                   <span>합계 <b>{item.numbers.reduce((sum, number) => sum + number, 0)}</b></span>
-                  <span>홀짝 <b>{oddCount}:{6 - oddCount}</b></span>
+                  <span>홀짝 참고 <b>{oddCount}:{6 - oddCount}</b></span>
                   <span>최근 <b>{item.components.recent}</b></span>
                   <span>번호쌍 <b>{item.components.pairs}</b></span>
                 </div>
@@ -153,7 +171,7 @@ function App() {
       <footer>
         <span className="brand__mark">L45</span>
         <p>패턴 점수는 당첨을 예측하거나 보장하지 않습니다. 복권은 계획적으로 즐겨주세요.</p>
-        <small>19세 미만 구매 불가 · 데이터 출처 동행복권 · 지도 OpenStreetMap</small>
+        <small>19세 미만 구매 불가 · 데이터 출처 동행복권 · 지도 Kakao Maps 또는 OpenStreetMap</small>
       </footer>
     </main>
   )

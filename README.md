@@ -4,10 +4,12 @@
 
 ## 주요 기능
 
-- 전체 빈도, 최근 가중 빈도, 번호 쌍, 합계·홀짝 분포를 결합한 추천 TOP 10
+- 전체 빈도, 최근 가중 빈도, 번호 쌍, 조합 형태를 결합한 추천 TOP 10
 - 다음 회차를 시드로 사용해 같은 회차에는 동일한 추천 결과 제공
 - 1회부터 최신 회차까지 당첨번호와 1·2등 당첨 판매점 조회
-- 현재 위치 기준 가까운 공식 로또 판매점 20곳을 지도와 거리순 목록으로 표시
+- 현재 위치 기준 가까운 공식 로또 판매점 20곳과 역대 1·2등 당첨 횟수 표시
+- 사용자가 선택하고 기기에 저장되는 라이트·다크 테마
+- Kakao Maps 키가 있으면 Kakao 지도, 없거나 연결에 실패하면 OpenStreetMap 사용
 - GitHub 원격 JSON을 통한 회차·당첨점·판매점 데이터 동기화
 - 네트워크 장애 시 캐시 또는 APK 내장 데이터 사용
 - GitHub Actions를 통한 주간 데이터 갱신과 APK 빌드
@@ -34,13 +36,24 @@ npm run android:sync
 
 APK는 GitHub Actions의 `Build Android APK` 실행 결과에서 받을 수 있습니다.
 
+## Kakao Maps 설정
+
+Kakao Developers에서 앱을 만든 뒤 JavaScript 키를 발급하고 JavaScript SDK 도메인에 로컬 개발 주소와 Android WebView 주소를 등록합니다.
+
+- 로컬 개발은 `http://127.0.0.1:5173`입니다.
+- Android 앱은 Capacitor 기본 주소인 `https://localhost`입니다.
+- 로컬에서는 `.env.example`을 `.env.local`로 복사한 뒤 `VITE_KAKAO_MAP_JAVASCRIPT_KEY`에 키를 입력합니다.
+- GitHub Actions에서는 저장소의 Actions secret `KAKAO_MAP_JAVASCRIPT_KEY`에 같은 키를 등록합니다.
+
+키를 설정하지 않아도 앱은 OpenStreetMap으로 정상 동작합니다.
+
 ## 데이터 흐름
 
 매주 일요일 GitHub Actions가 동행복권의 공개 응답을 확인해 최신 회차, 역대 회차와 회차별 당첨 판매점을 갱신합니다. 전국 판매점 목록은 28일마다 새로 확인합니다. 설치된 APK는 실행할 때 GitHub 원격 JSON을 확인하므로 앱을 다시 설치하지 않아도 최신 데이터를 표시합니다.
 
 - `public/data/history.json`은 1회부터 최신 회차까지의 당첨번호입니다.
 - `data/winners/####.json`은 회차별 1·2등 당첨 판매점입니다.
-- `public/data/stores.json`은 위치 계산에 사용하는 전국 판매점입니다.
+- `public/data/stores.json`은 위치 계산과 판매점별 역대 1·2등 횟수 표시에 사용하는 전국 판매점입니다.
 
 ## 주의 사항
 
