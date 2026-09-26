@@ -9,8 +9,8 @@ describe('판매점 거리', () => {
 
   it('가까운 판매점을 거리순으로 정렬한다', () => {
     const stores = [
-      { id: 'far', name: '먼 곳', address: '', phone: '', lat: 37.6, lon: 127 },
-      { id: 'near', name: '가까운 곳', address: '', phone: '', lat: 37.501, lon: 127 },
+      { id: 'far', name: '먼 곳', address: '', phone: '', lat: 37.6, lon: 127, rank1Wins: 0, rank2Wins: 0 },
+      { id: 'near', name: '가까운 곳', address: '', phone: '', lat: 37.501, lon: 127, rank1Wins: 1, rank2Wins: 2 },
     ]
     expect(nearestStores(stores, 37.5, 127, 1)[0].id).toBe('near')
   })

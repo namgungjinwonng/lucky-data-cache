@@ -194,37 +194,72 @@ function normalizeStore(item) {
   }
 }
 
-async function updateStores() {
+async function buildWinCounts(latestRound) {
+  const counts = new Map()
+  const rounds = Array.from({ length: latestRound }, (_, index) => index + 1)
+  await mapConcurrent(rounds, async (round) => {
+    const dataset = await readJson(new URL(`${String(round).padStart(4, '0')}.json`, WINNERS_DIR))
+    for (const store of dataset?.stores ?? []) {
+      const current = counts.get(store.id) ?? { rank1: 0, rank2: 0 }
+      if (store.rank === 1) current.rank1 += store.winCount
+      if (store.rank === 2) current.rank2 += store.winCount
+      counts.set(store.id, current)
+    }
+  })
+  return counts
+}
+
+function enrichStoreWinCounts(stores, winCounts) {
+  return stores.map((store) => {
+    const counts = winCounts.get(store.id) ?? { rank1: 0, rank2: 0 }
+    return { ...store, rank1Wins: counts.rank1, rank2Wins: counts.rank2 }
+  })
+}
+
+async function updateStores(latestRound) {
   const existing = await readJson(STORES_PATH)
-  const updatedAt = existing?.sourceUpdatedAt ? new Date(existing.sourceUpdatedAt).getTime() : 0
-  if (existing?.stores?.length > 0 && Date.now() - updatedAt < 28 * 24 * 60 * 60 * 1000) {
+  const directoryUpdatedAt = existing?.directoryUpdatedAt ?? existing?.sourceUpdatedAt
+  const updatedAt = directoryUpdatedAt ? new Date(directoryUpdatedAt).getTime() : 0
+  const isDirectoryFresh = existing?.stores?.length > 0 && Date.now() - updatedAt < 28 * 24 * 60 * 60 * 1000
+  const winCounts = await buildWinCounts(latestRound)
+  let stores = existing?.stores ?? []
+  let nextDirectoryUpdatedAt = directoryUpdatedAt
+
+  if (isDirectoryFresh) {
     console.log(`전국 판매점 ${existing.stores.length}곳은 아직 최신입니다.`)
-    return
+  } else {
+    const baseParams = {
+      l645LtNtslYn: 'Y', l520LtNtslYn: 'N', st5LtNtslYn: 'N', st10LtNtslYn: 'N', st20LtNtslYn: 'N',
+      cpexUsePsbltyYn: 'N', pageCount: '5', recordCountPerPage: '10', srchCtpvNm: '', srchSggNm: '',
+    }
+    const first = await fetchJson(`${STORE_URL}?${new URLSearchParams({ ...baseParams, pageNum: '1' })}`)
+    const total = Number(first?.data?.total)
+    if (!Number.isInteger(total) || total < 1) throw new Error('전국 판매점 수를 확인하지 못했습니다.')
+    const pages = Math.ceil(total / 10)
+    const remaining = Array.from({ length: pages - 1 }, (_, index) => index + 2)
+    console.log(`전국 판매점 ${total}곳, ${pages}페이지를 수집합니다.`)
+    const responses = await mapConcurrent(remaining, async (page, index) => {
+      const payload = await fetchJson(`${STORE_URL}?${new URLSearchParams({ ...baseParams, pageNum: String(page) })}`)
+      if ((index + 1) % 100 === 0) console.log(`전국 판매점 ${index + 1}/${remaining.length}페이지 수집`)
+      return payload?.data?.list ?? []
+    })
+    const storeMap = new Map([...(first.data.list ?? []), ...responses.flat()].map(normalizeStore).filter(Boolean).map((store) => [store.id, store]))
+    if (storeMap.size < total * 0.9) throw new Error(`판매점 수집률이 낮습니다: ${storeMap.size}/${total}`)
+    stores = [...storeMap.values()].sort((a, b) => a.id.localeCompare(b.id))
+    nextDirectoryUpdatedAt = new Date().toISOString()
   }
 
-  const baseParams = {
-    l645LtNtslYn: 'Y', l520LtNtslYn: 'N', st5LtNtslYn: 'N', st10LtNtslYn: 'N', st20LtNtslYn: 'N',
-    cpexUsePsbltyYn: 'N', pageCount: '5', recordCountPerPage: '10', srchCtpvNm: '', srchSggNm: '',
-  }
-  const first = await fetchJson(`${STORE_URL}?${new URLSearchParams({ ...baseParams, pageNum: '1' })}`)
-  const total = Number(first?.data?.total)
-  if (!Number.isInteger(total) || total < 1) throw new Error('전국 판매점 수를 확인하지 못했습니다.')
-  const pages = Math.ceil(total / 10)
-  const remaining = Array.from({ length: pages - 1 }, (_, index) => index + 2)
-  console.log(`전국 판매점 ${total}곳, ${pages}페이지를 수집합니다.`)
-  const responses = await mapConcurrent(remaining, async (page, index) => {
-    const payload = await fetchJson(`${STORE_URL}?${new URLSearchParams({ ...baseParams, pageNum: String(page) })}`)
-    if ((index + 1) % 100 === 0) console.log(`전국 판매점 ${index + 1}/${remaining.length}페이지 수집`)
-    return payload?.data?.list ?? []
-  })
-  const storeMap = new Map([...(first.data.list ?? []), ...responses.flat()].map(normalizeStore).filter(Boolean).map((store) => [store.id, store]))
-  if (storeMap.size < total * 0.9) throw new Error(`판매점 수집률이 낮습니다: ${storeMap.size}/${total}`)
-  await writeJson(STORES_PATH, { schemaVersion: 1, sourceUpdatedAt: new Date().toISOString(), stores: [...storeMap.values()].sort((a, b) => a.id.localeCompare(b.id)) })
+  const enrichedStores = enrichStoreWinCounts(stores, winCounts)
+  const previousComparable = JSON.stringify((existing?.stores ?? []).map(({ rank1Wins = 0, rank2Wins = 0, ...store }) => ({ ...store, rank1Wins, rank2Wins })))
+  const sourceUpdatedAt = JSON.stringify(enrichedStores) === previousComparable && existing?.sourceUpdatedAt
+    ? existing.sourceUpdatedAt
+    : new Date().toISOString()
+  await writeJson(STORES_PATH, { schemaVersion: 1, sourceUpdatedAt, directoryUpdatedAt: nextDirectoryUpdatedAt, stores: enrichedStores })
 }
 
 const latest = await fetchLatest()
 const history = await updateHistory(latest)
 await writeJson(LATEST_PATH, { schemaVersion: 1, ...latest, sourceUpdatedAt: history.sourceUpdatedAt })
 await updateWinnerStores(latest.round)
-await updateStores()
+await updateStores(latest.round)
 console.log(`${latest.round}회까지 번호·당첨점·전국 판매점 데이터를 저장했습니다.`)

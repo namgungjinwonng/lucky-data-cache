@@ -40,11 +40,14 @@ export interface LotteryStore {
   phone: string
   lat: number
   lon: number
+  rank1Wins: number
+  rank2Wins: number
 }
 
 export interface StoreDataset {
   schemaVersion: 1
   sourceUpdatedAt: string
+  directoryUpdatedAt?: string
   stores: LotteryStore[]
 }
 
@@ -81,7 +84,8 @@ function isStoreDataset(value: unknown): value is StoreDataset {
   if (!value || typeof value !== 'object') return false
   const dataset = value as Partial<StoreDataset>
   return dataset.schemaVersion === 1 && Array.isArray(dataset.stores) && dataset.stores.length > 0 && dataset.stores.every((store) =>
-    typeof store.id === 'string' && typeof store.name === 'string' && Number.isFinite(store.lat) && Number.isFinite(store.lon),
+    typeof store.id === 'string' && typeof store.name === 'string' && Number.isFinite(store.lat) && Number.isFinite(store.lon)
+    && Number.isInteger(store.rank1Wins) && store.rank1Wins >= 0 && Number.isInteger(store.rank2Wins) && store.rank2Wins >= 0,
   )
 }
 
