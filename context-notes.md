@@ -52,3 +52,5 @@
 - 테스트 13개와 Android 자산 동기화는 통과했다. 로컬 release Gradle 빌드는 코드 오류가 아니라 로컬 Java 미설치로 실행할 수 없어 원격 Actions에서 최종 검증한다.
 - PKCS12 서명키를 `release-signing` Git 제외 폴더에 생성하고 4개 서명 값을 GitHub Actions Repository Secrets에 등록했다. 화면에는 Secret 이름만 노출되는 것을 확인했다.
 - 첫 원격 release 빌드는 `build.gradle` 16행의 동적 `versionCode` 메서드 호출이 null로 평가돼 실패했다. 실제 로그를 확인한 뒤 명시적 속성 대입과 `Integer.parseInt` 방식으로 수정했다.
+- 수정 커밋 `22a15bc`의 `Build Release APK`가 성공했고 약 3.34MB의 `lucky-45-release-apk` 아티팩트가 생성됐다.
+- 당첨 데이터는 앱 실행 시 GitHub 원격 JSON을 확인한다. 앱이 열린 상태에서 실시간 갱신되지는 않으므로 데이터 배포 후 앱을 다시 열어야 한다.
