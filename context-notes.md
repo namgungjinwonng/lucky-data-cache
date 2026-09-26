@@ -8,3 +8,5 @@
 - 행운의 의미를 포함한 중립적인 이름으로 `lucky-data-cache`를 선택했다.
 - APK에 GitHub 인증 토큰을 넣지 않기 위해 데이터 저장소는 공개로 운영한다.
 - 현재 작업 폴더의 상위 경로가 기존 `u81-baseball` 저장소이므로, `lotto` 폴더에 별도 `.git`을 만들어 독립적으로 관리한다.
+- GitHub에 `namgungjinwonng/lucky-data-cache` 공개 저장소를 생성했다.
+- 로컬 `main` 브랜치를 새 원격 저장소의 `main` 브랜치에 연결했다.
