@@ -19,12 +19,12 @@ jobs:
       - run: npm run data:update
       - name: Commit fresh data
         run: |
-          if git diff --quiet -- public/data/latest.json; then
+          if git diff --quiet -- public/data data/winners; then
             echo "No data changes"
             exit 0
           fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add public/data/latest.json
-          git commit -m "최신 회차 데이터 갱신"
+          git add public/data data/winners
+          git commit -m "회차 및 판매점 데이터 갱신"
           git push
