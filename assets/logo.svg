@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <rect width="1024" height="1024" fill="#181818"/>
+  <path d="M0 768h1024v256H0z" fill="#da291c"/>
+  <path d="M0 0h24v768H0z" fill="#303030"/>
+  <text x="92" y="622" fill="#ffffff" font-family="Arial, sans-serif" font-size="350" font-weight="700" letter-spacing="-30">L45</text>
+  <text x="105" y="720" fill="#969696" font-family="Arial, sans-serif" font-size="44" font-weight="700" letter-spacing="16">RACING FOR LUCK</text>
+</svg>
