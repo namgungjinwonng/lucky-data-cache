@@ -1,17 +1,17 @@
 {
   "schemaVersion": 1,
-  "round": 1243,
-  "date": "2026-09-26",
+  "round": 1244,
+  "date": "2026-10-03",
   "numbers": [
-    9,
+    1,
+    13,
     18,
-    24,
-    38,
-    43,
-    44
+    26,
+    34,
+    38
   ],
-  "bonus": 35,
-  "firstPrize": 2592525282,
-  "winners": 12,
-  "sourceUpdatedAt": "2026-09-26T13:57:17.868Z"
+  "bonus": 25,
+  "firstPrize": 1604686625,
+  "winners": 18,
+  "sourceUpdatedAt": "2026-10-03T18:32:57.226Z"
 }
