@@ -15,8 +15,23 @@ export interface RankedCombination {
   }
 }
 
+export interface RecommendationSets {
+  top: RankedCombination[]
+  bottom: RankedCombination[]
+  mixed: RankedCombination[]
+}
+
 interface Candidate extends Omit<RankedCombination, 'rank' | 'score'> {
   rawScore: number
+}
+
+interface AnalysisModel {
+  candidates: Candidate[]
+  mean: number
+  deviation: number
+  normalizedFrequency: number[]
+  normalizedRecent: number[]
+  scoreNumbers: (numbers: number[]) => Candidate
 }
 
 function seededRandom(seed: number) {
@@ -59,7 +74,24 @@ function createCandidate(random: () => number) {
   return values.slice(0, 6).sort((a, b) => a - b)
 }
 
-export function rankCombinations(draws: HistoricalDraw[], count = 10, poolSize = 30_000): RankedCombination[] {
+function createWeightedCandidate(numbers: number[], weights: number[], random: () => number) {
+  const available = numbers.map((number) => ({ number, weight: weights[number] }))
+  const selected: number[] = []
+  while (selected.length < 6 && available.length > 0) {
+    const total = available.reduce((sum, item) => sum + item.weight, 0)
+    let threshold = random() * total
+    let index = 0
+    while (index < available.length - 1 && threshold > available[index].weight) {
+      threshold -= available[index].weight
+      index += 1
+    }
+    selected.push(available[index].number)
+    available.splice(index, 1)
+  }
+  return selected.sort((a, b) => a - b)
+}
+
+function createAnalysisModel(draws: HistoricalDraw[], poolSize: number): AnalysisModel {
   if (draws.length < 20) throw new Error('패턴 분석에는 최소 20개 회차가 필요합니다.')
   const ordered = [...draws].sort((a, b) => b.round - a.round)
   const frequency = Array(46).fill(0) as number[]
@@ -99,12 +131,7 @@ export function rankCombinations(draws: HistoricalDraw[], count = 10, poolSize =
   const seen = new Set<string>()
   const candidates: Candidate[] = []
 
-  while (candidates.length < poolSize) {
-    const numbers = createCandidate(random)
-    const key = numbers.join('-')
-    if (seen.has(key)) continue
-    seen.add(key)
-
+  const scoreNumbers = (numbers: number[]): Candidate => {
     const frequencyScore = average(numbers.map((number) => normalizedFrequency[number]))
     const recentScore = average(numbers.map((number) => normalizedRecent[number]))
     const pairScores: number[] = []
@@ -122,33 +149,93 @@ export function rankCombinations(draws: HistoricalDraw[], count = 10, poolSize =
       oddDistribution[oddCount] / maxOdd,
       lowDistribution[lowCount] / maxLow,
     ])
-    const rawScore = frequencyScore * 0.24 + recentScore * 0.27 + pairsScore * 0.24 + balanceScore * 0.25
-    candidates.push({
+    return {
       numbers,
-      rawScore,
+      rawScore: frequencyScore * 0.24 + recentScore * 0.27 + pairsScore * 0.24 + balanceScore * 0.25,
       components: {
         frequency: Math.round(frequencyScore * 100),
         recent: Math.round(recentScore * 100),
         pairs: Math.round(pairsScore * 100),
         balance: Math.round(balanceScore * 100),
       },
-    })
+    }
+  }
+
+  while (candidates.length < poolSize) {
+    const numbers = createCandidate(random)
+    const key = numbers.join('-')
+    if (seen.has(key)) continue
+    seen.add(key)
+    candidates.push(scoreNumbers(numbers))
   }
 
   candidates.sort((a, b) => b.rawScore - a.rawScore || a.numbers.join('-').localeCompare(b.numbers.join('-')))
   const mean = average(candidates.map((candidate) => candidate.rawScore))
   const deviation = Math.sqrt(average(candidates.map((candidate) => (candidate.rawScore - mean) ** 2))) || 1
+  return { candidates, mean, deviation, normalizedFrequency, normalizedRecent, scoreNumbers }
+}
+
+function selectDiverse(candidates: Candidate[], count: number, excluded = new Set<string>()) {
   const selected: Candidate[] = []
   for (const candidate of candidates) {
+    if (excluded.has(candidate.numbers.join('-'))) continue
     const overlapsTooMuch = selected.some((chosen) => candidate.numbers.filter((number) => chosen.numbers.includes(number)).length > 4)
     if (!overlapsTooMuch) selected.push(candidate)
     if (selected.length === count) break
   }
 
-  return selected.map((candidate, index) => ({
+  return selected
+}
+
+function toRanked(candidates: Candidate[], mean: number, deviation: number): RankedCombination[] {
+  return candidates.map((candidate, index) => ({
     rank: index + 1,
     numbers: candidate.numbers,
     score: Math.round(Math.max(0, Math.min(100, 50 + ((candidate.rawScore - mean) / deviation) * 12)) * 10) / 10,
     components: candidate.components,
   }))
+}
+
+export function rankCombinations(draws: HistoricalDraw[], count = 10, poolSize = 30_000): RankedCombination[] {
+  const model = createAnalysisModel(draws, poolSize)
+  return toRanked(selectDiverse(model.candidates, count), model.mean, model.deviation)
+}
+
+export function rankRecommendationSets(draws: HistoricalDraw[], poolSize = 30_000): RecommendationSets {
+  const model = createAnalysisModel(draws, poolSize)
+  const topCandidates = selectDiverse(model.candidates, 10)
+  const topKeys = new Set(topCandidates.map((candidate) => candidate.numbers.join('-')))
+  const bottomCandidates = selectDiverse([...model.candidates].reverse(), 5, topKeys)
+  const sourceKeys = new Set([...topKeys, ...bottomCandidates.map((candidate) => candidate.numbers.join('-'))])
+  const topNumbers = new Set(topCandidates.flatMap((candidate) => candidate.numbers))
+  const bottomNumbers = new Set(bottomCandidates.flatMap((candidate) => candidate.numbers))
+  const sourceNumbers = [...new Set([...topNumbers, ...bottomNumbers])]
+  const topOnly = new Set(sourceNumbers.filter((number) => topNumbers.has(number) && !bottomNumbers.has(number)))
+  const bottomOnly = new Set(sourceNumbers.filter((number) => bottomNumbers.has(number) && !topNumbers.has(number)))
+  const numberWeights = Array(46).fill(0.05) as number[]
+  sourceNumbers.forEach((number) => {
+    const priority = model.normalizedFrequency[number] * 0.45 + model.normalizedRecent[number] * 0.55
+    numberWeights[number] = 0.05 + priority ** 2
+  })
+
+  const random = seededRandom((((Math.max(...draws.map((draw) => draw.round)) + 1) * 2_654_435_761) ^ 0x9e3779b9) >>> 0)
+  const mixedMap = new Map<string, Candidate>()
+  let attempts = 0
+  while (mixedMap.size < Math.min(6_000, poolSize) && attempts < poolSize * 5) {
+    attempts += 1
+    const numbers = createWeightedCandidate(sourceNumbers, numberWeights, random)
+    if (numbers.length !== 6) break
+    if (topOnly.size > 0 && !numbers.some((number) => topOnly.has(number))) continue
+    if (bottomOnly.size > 0 && !numbers.some((number) => bottomOnly.has(number))) continue
+    const key = numbers.join('-')
+    if (sourceKeys.has(key) || mixedMap.has(key)) continue
+    mixedMap.set(key, model.scoreNumbers(numbers))
+  }
+  const mixedCandidates = [...mixedMap.values()].sort((a, b) => b.rawScore - a.rawScore || a.numbers.join('-').localeCompare(b.numbers.join('-')))
+
+  return {
+    top: toRanked(topCandidates, model.mean, model.deviation),
+    bottom: toRanked(bottomCandidates, model.mean, model.deviation),
+    mixed: toRanked(selectDiverse(mixedCandidates, 5), model.mean, model.deviation),
+  }
 }
