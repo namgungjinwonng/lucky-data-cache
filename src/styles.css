@@ -10,6 +10,7 @@
   --elevated: #ebe7e1;
   --primary: #da291c;
   --primary-active: #b01e0a;
+  --primary-panel: #b5443b;
   --ink: #181818;
   --body: #626262;
   --muted: #777;
@@ -32,6 +33,7 @@
   --body: #969696;
   --muted: #777;
   --line: #363636;
+  --primary-panel: #8f312b;
   --hero-glow: #383838;
   --meter: #3c3c3c;
   --result-bg: #181818;
@@ -68,7 +70,7 @@ button:disabled { cursor: not-allowed; opacity: .35; }
 .hero__meter div { flex: 1; height: 1px; background: var(--meter); }
 .hero__meter i { display: block; width: 24%; height: 1px; background: var(--primary); }
 
-.latest-band { display: flex; flex-direction: column; gap: 24px; padding: 32px 24px; background: var(--primary); }
+.latest-band { display: flex; flex-direction: column; gap: 24px; padding: 32px 24px; background: var(--primary-panel); color: #fff; }
 .latest-band .section-label { color: rgba(255,255,255,.68); }
 .latest-band h2 { margin: 6px 0 0; font-size: 36px; font-weight: 500; letter-spacing: -1px; }
 .latest-band p { margin: 6px 0 0; color: rgba(255,255,255,.72); font-size: 12px; }
@@ -80,7 +82,7 @@ button:disabled { cursor: not-allowed; opacity: .35; }
 .app-menu button { min-height: 66px; padding: 10px 4px; border: 0; border-right: 1px solid var(--line); background: transparent; color: var(--muted); font-size: 10px; font-weight: 700; letter-spacing: -.2px; }
 .app-menu button:last-child { border-right: 0; }
 .app-menu button span { display: block; margin-bottom: 5px; color: #555; font-size: 9px; letter-spacing: 1px; }
-.app-menu button.is-active { background: var(--primary); color: #fff; }
+.app-menu button.is-active { background: var(--primary-panel); color: #fff; }
 .app-menu button.is-active span { color: rgba(255,255,255,.65); }
 
 .analysis-intro, .history-browser, .nearby-section { padding: 56px 24px; }
