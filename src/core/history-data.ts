@@ -1,4 +1,12 @@
 // GitHub 원격 데이터와 APK 내장 파일에서 역대 회차·당첨점·판매점 데이터를 동기화하는 모듈
+export interface PrizeAmounts {
+  1: number
+  2: number
+  3: number
+  4: number
+  5: number
+}
+
 export interface HistoricalDraw {
   round: number
   date: string
@@ -6,6 +14,7 @@ export interface HistoricalDraw {
   bonus: number
   firstPrize: number
   winners: number
+  prizes?: PrizeAmounts
 }
 
 export interface HistoryDataset {
@@ -59,13 +68,19 @@ function isNumberSet(numbers: unknown): numbers is number[] {
   return Array.isArray(numbers) && numbers.length === 6 && new Set(numbers).size === 6 && numbers.every((number) => Number.isInteger(number) && number >= 1 && number <= 45)
 }
 
+function isPrizeAmounts(value: unknown): value is PrizeAmounts {
+  if (!value || typeof value !== 'object') return false
+  const prizes = value as Partial<PrizeAmounts>
+  return [1, 2, 3, 4, 5].every((rank) => Number.isInteger(prizes[rank as keyof PrizeAmounts]) && Number(prizes[rank as keyof PrizeAmounts]) >= 0)
+}
+
 export function isHistoryDataset(value: unknown): value is HistoryDataset {
   if (!value || typeof value !== 'object') return false
   const dataset = value as Partial<HistoryDataset>
   if (dataset.schemaVersion !== 1 || typeof dataset.sourceUpdatedAt !== 'string' || !Array.isArray(dataset.draws) || dataset.draws.length < 1) return false
   const rounds = new Set<number>()
   for (const draw of dataset.draws) {
-    if (!Number.isInteger(draw.round) || rounds.has(draw.round) || !isNumberSet(draw.numbers) || !Number.isInteger(draw.bonus) || draw.numbers.includes(draw.bonus)) return false
+    if (!Number.isInteger(draw.round) || rounds.has(draw.round) || !isNumberSet(draw.numbers) || !Number.isInteger(draw.bonus) || draw.numbers.includes(draw.bonus) || (draw.prizes !== undefined && !isPrizeAmounts(draw.prizes))) return false
     rounds.add(draw.round)
   }
   const latest = Math.max(...rounds)

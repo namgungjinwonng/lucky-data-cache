@@ -21,12 +21,20 @@ function formatDate(value) {
 
 function normalizeDraw(draw) {
   const numbers = [draw.tm1WnNo, draw.tm2WnNo, draw.tm3WnNo, draw.tm4WnNo, draw.tm5WnNo, draw.tm6WnNo]
+  const prizes = {
+    1: Number(draw.rnk1WnAmt) || 0,
+    2: Number(draw.rnk2WnAmt) || 0,
+    3: Number(draw.rnk3WnAmt) || 0,
+    4: Number(draw.rnk4WnAmt) || 0,
+    5: Number(draw.rnk5WnAmt) || 0,
+  }
   if (
     !Number.isInteger(draw.ltEpsd) ||
     new Set(numbers).size !== 6 ||
     numbers.some((number) => !Number.isInteger(number) || number < 1 || number > 45) ||
     !Number.isInteger(draw.bnsWnNo) ||
-    numbers.includes(draw.bnsWnNo)
+    numbers.includes(draw.bnsWnNo) ||
+    Object.values(prizes).some((amount) => !Number.isInteger(amount) || amount < 0)
   ) throw new Error(`공식 응답의 ${draw.ltEpsd ?? '알 수 없는'}회 번호가 올바르지 않습니다.`)
 
   return {
@@ -36,6 +44,7 @@ function normalizeDraw(draw) {
     bonus: draw.bnsWnNo,
     firstPrize: Number(draw.rnk1WnAmt) || 0,
     winners: Number(draw.rnk1WnNope) || 0,
+    prizes,
   }
 }
 

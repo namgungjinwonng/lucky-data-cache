@@ -1,4 +1,6 @@
 // GitHub 원격 데이터와 기기 캐시에서 최신 당첨 결과를 안전하게 불러오는 모듈
+import type { PrizeAmounts } from './history-data'
+
 export interface LatestDraw {
   schemaVersion: 1
   round: number
@@ -7,6 +9,7 @@ export interface LatestDraw {
   bonus: number
   firstPrize: number
   winners: number
+  prizes?: PrizeAmounts
   sourceUpdatedAt: string
 }
 
@@ -35,6 +38,10 @@ export function isLatestDraw(value: unknown): value is LatestDraw {
     !draw.numbers.includes(draw.bonus as number) &&
     typeof draw.firstPrize === 'number' &&
     typeof draw.winners === 'number' &&
+    (draw.prizes === undefined || (
+      typeof draw.prizes === 'object' &&
+      [1, 2, 3, 4, 5].every((rank) => Number.isInteger(draw.prizes?.[rank as keyof PrizeAmounts]) && Number(draw.prizes?.[rank as keyof PrizeAmounts]) >= 0)
+    )) &&
     typeof draw.sourceUpdatedAt === 'string'
   )
 }
