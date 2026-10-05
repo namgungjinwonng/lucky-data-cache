@@ -1,15 +1,19 @@
 // 통계 추천·역대 당첨점·주변 판매점 지도를 제공하는 LUCKY 45 모바일 앱 화면
 import { useEffect, useMemo, useState } from 'react'
+import { RecommendationCarousel } from './components/RecommendationCarousel'
 import { StoreMap } from './components/StoreMap'
-import { JACKPOT_ODDS, rankCombinations } from './core/analysis'
+import { JACKPOT_ODDS, rankRecommendationSets } from './core/analysis'
 import { type DrawSyncResult, syncLatestDraw } from './core/draw-data'
 import { type HistoryDataset, type WinnerStoreDataset, syncHistoryDataset, syncWinnerStores } from './core/history-data'
 import { ballTone } from './core/lotto'
+import { createRecommendationSnapshot, evaluateRecommendationHistory, readRecommendationHistory, saveLegacyRecommendationSnapshot, saveRecommendationSnapshot, type RecommendationCategory, type RecommendationSnapshot } from './core/recommendation-history'
 
 type AppMenu = 'ranking' | 'history' | 'nearby'
 type Theme = 'light' | 'dark'
+type RecommendationTab = RecommendationCategory | 'records'
 
 const THEME_KEY = 'lucky45.theme'
+const CATEGORY_LABELS: Record<RecommendationCategory, string> = { top: '상위', bottom: '하위', mixed: '혼합' }
 
 function readTheme(): Theme {
   const saved = localStorage.getItem(THEME_KEY)
@@ -30,6 +34,8 @@ function App() {
   const [winnerStores, setWinnerStores] = useState<WinnerStoreDataset | null>(null)
   const [winnerStatus, setWinnerStatus] = useState('')
   const [loading, setLoading] = useState(true)
+  const [recommendationTab, setRecommendationTab] = useState<RecommendationTab>('top')
+  const [recommendationHistory, setRecommendationHistory] = useState<RecommendationSnapshot[]>(readRecommendationHistory)
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme
@@ -67,9 +73,27 @@ function App() {
     return () => { active = false }
   }, [history, menu, selectedRound])
 
-  const rankings = useMemo(() => history ? rankCombinations(history.draws) : [], [history])
+  const recommendationSets = useMemo(() => history ? rankRecommendationSets(history.draws) : null, [history])
   const selectedDraw = useMemo(() => history?.draws.find((draw) => draw.round === selectedRound) ?? null, [history, selectedRound])
   const latestRound = history?.draws[0].round ?? drawResult?.draw.round ?? 0
+  const recommendationOutcomes = useMemo(
+    () => evaluateRecommendationHistory(recommendationHistory, history?.draws ?? []),
+    [history, recommendationHistory],
+  )
+
+  useEffect(() => {
+    if (!history || !recommendationSets) return
+    const sourceRound = history.draws[0].round
+    const snapshot = createRecommendationSnapshot(recommendationSets, sourceRound + 1, sourceRound)
+    let nextHistory = saveRecommendationSnapshot(snapshot)
+    if (sourceRound >= 1244) {
+      const backtestDraws = history.draws.filter((draw) => draw.round <= 1243)
+      const legacy = createRecommendationSnapshot(rankRecommendationSets(backtestDraws), 1244, 1243, new Date().toISOString(), 'legacy')
+      legacy.games = legacy.games.filter((game) => game.category === 'top')
+      nextHistory = saveLegacyRecommendationSnapshot(legacy)
+    }
+    setRecommendationHistory(nextHistory)
+  }, [history, recommendationSets])
 
   const moveRound = (delta: number) => {
     setSelectedRound((round) => Math.min(latestRound, Math.max(1, round + delta)))
@@ -109,7 +133,7 @@ function App() {
       </section>
 
       <nav className="app-menu" aria-label="주요 메뉴">
-        <button className={menu === 'ranking' ? 'is-active' : ''} type="button" onClick={() => setMenu('ranking')}><span>01</span>추천 TOP 10</button>
+        <button className={menu === 'ranking' ? 'is-active' : ''} type="button" onClick={() => setMenu('ranking')}><span>01</span>추천 20</button>
         <button className={menu === 'history' ? 'is-active' : ''} type="button" onClick={() => setMenu('history')}><span>02</span>회차·당첨점</button>
         <button className={menu === 'nearby' ? 'is-active' : ''} type="button" onClick={() => setMenu('nearby')}><span>03</span>주변 판매점</button>
       </nav>
@@ -123,21 +147,43 @@ function App() {
         </section>
 
         <section className="results">
-          <div className="section-heading section-heading--light"><div><span className="section-label">STARTING GRID</span><h2>추천 조합 10</h2></div><span className="results__count">WEEKLY FIXED</span></div>
-          {rankings.length === 0 ? <p className="loading-copy">역대 데이터를 분석하고 있습니다.</p> : <div className="result-list">
-            {rankings.map((item) => {
-              const oddCount = item.numbers.filter((number) => number % 2 === 1).length
-              return <article className="result-card" key={item.numbers.join('-')}>
-                <div className="result-card__top"><span className="result-card__index">RANK {String(item.rank).padStart(2, '0')}</span><strong>{item.score.toFixed(1)}<small> PATTERN</small></strong></div>
-                <div className="result-card__numbers">{item.numbers.map((number) => <NumberBall key={number} number={number} />)}</div>
-                <div className="result-card__telemetry">
-                  <span>합계 <b>{item.numbers.reduce((sum, number) => sum + number, 0)}</b></span>
-                  <span>홀짝 참고 <b>{oddCount}:{6 - oddCount}</b></span>
-                  <span>최근 <b>{item.components.recent}</b></span>
-                  <span>번호쌍 <b>{item.components.pairs}</b></span>
-                </div>
-              </article>
-            })}
+          <div className="section-heading section-heading--light"><div><span className="section-label">STARTING GRID</span><h2>추천 조합 20</h2></div><span className="results__count">5 GAMES / PAGE</span></div>
+          <div className="recommendation-tabs" role="tablist" aria-label="추천 조합 분류">
+            <button className={recommendationTab === 'top' ? 'is-active' : ''} type="button" role="tab" onClick={() => setRecommendationTab('top')}>상위 10</button>
+            <button className={recommendationTab === 'bottom' ? 'is-active' : ''} type="button" role="tab" onClick={() => setRecommendationTab('bottom')}>하위 5</button>
+            <button className={recommendationTab === 'mixed' ? 'is-active' : ''} type="button" role="tab" onClick={() => setRecommendationTab('mixed')}>혼합 5</button>
+            <button className={recommendationTab === 'records' ? 'is-active' : ''} type="button" role="tab" onClick={() => setRecommendationTab('records')}>당첨 이력</button>
+          </div>
+          {recommendationTab === 'mixed' && <p className="recommendation-description">상위·하위 조합에 나온 번호 중 과거 패턴 점수가 높은 번호를 우선해 새로 조합합니다.</p>}
+          {!recommendationSets ? <p className="loading-copy">역대 데이터를 분석하고 있습니다.</p> : recommendationTab !== 'records' ? <RecommendationCarousel
+            combinations={recommendationSets[recommendationTab]}
+            rankLabel={recommendationTab === 'top' ? 'RANK' : recommendationTab === 'bottom' ? 'LOW' : 'MIX'}
+          /> : <div className="recommendation-history">
+            <div className="recommendation-summary">
+              <span>추천 조합 누적 당첨금</span>
+              <strong>{recommendationOutcomes.totalPrize.toLocaleString('ko-KR')}원</strong>
+              <small>완료 {recommendationOutcomes.completedRounds}회 · 당첨 {recommendationOutcomes.winningGames}게임</small>
+            </div>
+            <p className="recommendation-history__notice">앱에서 실제로 생성한 추천 기록의 계산 결과이며 복권 구매·수령 여부와는 별개입니다.</p>
+            {recommendationOutcomes.rounds.length === 0 ? <p className="loading-copy">저장된 추천 이력이 없습니다.</p> : recommendationOutcomes.rounds.map((round, roundIndex) => <details className="recommendation-round" open={roundIndex === 0} key={round.snapshot.targetRound}>
+              <summary>
+                <span><b>{round.snapshot.targetRound}회 추천 {round.snapshot.kind === 'legacy' && <em>기존 상위 10</em>}</b><small>{round.snapshot.kind === 'legacy' ? `${round.snapshot.sourceRound}회까지의 데이터로 생성한 기존 추천` : `${new Date(round.snapshot.generatedAt).toLocaleDateString('ko-KR')} 생성`}</small></span>
+                <strong>{round.draw ? `${round.totalPrize.toLocaleString('ko-KR')}원` : '추첨 전'}</strong>
+              </summary>
+              <div className="recommendation-round__games">{round.games.map((game) => <div className="recommendation-history-game" key={`${game.category}-${game.index}`}>
+                <span className="recommendation-history-game__label">{CATEGORY_LABELS[game.category]} {String(game.index).padStart(2, '0')}</span>
+                <div>{game.numbers.map((number) => {
+                  const mainMatched = round.draw?.numbers.includes(number) ?? false
+                  const bonusMatched = round.draw?.bonus === number
+                  return <i
+                    className={mainMatched || bonusMatched ? `is-match number-ball--${ballTone(number)} ${bonusMatched ? 'is-bonus-match' : ''}` : ''}
+                    title={mainMatched ? '당첨번호 일치' : bonusMatched ? '보너스번호 일치' : undefined}
+                    key={number}
+                  >{number}</i>
+                })}</div>
+                <strong>{!round.draw ? '추첨 전' : game.rank ? `${game.rank}등 · ${(game.prize ?? 0).toLocaleString('ko-KR')}원` : `미당첨 · ${game.matchCount}개 일치`}</strong>
+              </div>)}</div>
+            </details>)}
           </div>}
         </section>
       </>}
