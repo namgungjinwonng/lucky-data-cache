@@ -2,11 +2,11 @@
 import { useEffect, useMemo, useState } from 'react'
 import { RecommendationCarousel } from './components/RecommendationCarousel'
 import { StoreMap } from './components/StoreMap'
-import { JACKPOT_ODDS, rankRecommendationSets } from './core/analysis'
+import { JACKPOT_ODDS, SCORE_WEIGHTS, rankRecommendationSets } from './core/analysis'
 import { type DrawSyncResult, syncLatestDraw } from './core/draw-data'
 import { type HistoryDataset, type WinnerStoreDataset, syncHistoryDataset, syncWinnerStores } from './core/history-data'
 import { ballTone } from './core/lotto'
-import { createRecommendationSnapshot, evaluateRecommendationHistory, readRecommendationHistory, saveLegacyRecommendationSnapshot, saveRecommendationSnapshot, type RecommendationCategory, type RecommendationSnapshot } from './core/recommendation-history'
+import { createLegacy1244Snapshot, createRecommendationSnapshot, evaluateRecommendationHistory, readRecommendationHistory, saveLegacyRecommendationSnapshot, saveRecommendationSnapshot, type RecommendationCategory, type RecommendationSnapshot } from './core/recommendation-history'
 
 type AppMenu = 'ranking' | 'history' | 'nearby'
 type Theme = 'light' | 'dark'
@@ -20,6 +20,8 @@ function readTheme(): Theme {
   if (saved === 'light' || saved === 'dark') return saved
   return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
 }
+
+const percent = (weight: number) => `${Math.round(weight * 100)}%`
 
 function NumberBall({ number, compact = false }: { number: number; compact?: boolean }) {
   return <span className={`number-ball number-ball--${ballTone(number)} ${compact ? 'number-ball--compact' : ''}`}>{number}</span>
@@ -86,12 +88,7 @@ function App() {
     const sourceRound = history.draws[0].round
     const snapshot = createRecommendationSnapshot(recommendationSets, sourceRound + 1, sourceRound)
     let nextHistory = saveRecommendationSnapshot(snapshot)
-    if (sourceRound >= 1244) {
-      const backtestDraws = history.draws.filter((draw) => draw.round <= 1243)
-      const legacy = createRecommendationSnapshot(rankRecommendationSets(backtestDraws), 1244, 1243, new Date().toISOString(), 'legacy')
-      legacy.games = legacy.games.filter((game) => game.category === 'top')
-      nextHistory = saveLegacyRecommendationSnapshot(legacy)
-    }
+    if (sourceRound >= 1244) nextHistory = saveLegacyRecommendationSnapshot(createLegacy1244Snapshot())
     setRecommendationHistory(nextHistory)
   }, [history, recommendationSets])
 
@@ -142,7 +139,7 @@ function App() {
         <section className="analysis-intro">
           <span className="section-label">NEXT · {latestRound ? latestRound + 1 : '—'} ROUND</span>
           <h2>패턴 적합도 순위</h2>
-          <p>전체 빈도 24% · 최근 가중 빈도 27% · 번호 쌍 24% · 조합 형태 25%를 결합했습니다.</p>
+          <p>전체 빈도 {percent(SCORE_WEIGHTS.frequency)} · 최근 가중 빈도 {percent(SCORE_WEIGHTS.recent)} · 번호 쌍 {percent(SCORE_WEIGHTS.pairs)} · 조합 형태 {percent(SCORE_WEIGHTS.balance)} · 지난 회차 이월 {percent(SCORE_WEIGHTS.carryover)}를 결합했습니다.</p>
           <div className="odds-notice"><strong>실제 1등 확률은 모두 동일</strong><span>1 / {JACKPOT_ODDS.toLocaleString('ko-KR')}</span><small>아래 점수는 과거 패턴과의 유사도이며 당첨확률이 아닙니다.</small></div>
         </section>
 
