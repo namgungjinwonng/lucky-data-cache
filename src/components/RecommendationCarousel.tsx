@@ -48,6 +48,7 @@ export function RecommendationCarousel({ combinations, rankLabel }: Recommendati
               <span>홀짝 참고 <b>{oddCount}:{6 - oddCount}</b></span>
               <span>최근 <b>{item.components.recent}</b></span>
               <span>번호쌍 <b>{item.components.pairs}</b></span>
+              <span>이월 <b>{item.carried}</b></span>
             </div>
           </article>
         })}

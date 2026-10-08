@@ -1,5 +1,5 @@
 // 회차별 추천 조합 스냅샷을 기기에 보존하고 공식 당첨 결과와 대조하는 모듈
-import type { RankedCombination, RecommendationSets } from './analysis'
+import { ALGORITHM_VERSION, type RankedCombination, type RecommendationSets } from './analysis'
 import type { HistoricalDraw, PrizeAmounts } from './history-data'
 
 export type RecommendationCategory = 'top' | 'bottom' | 'mixed'
@@ -16,6 +16,8 @@ export interface RecommendationSnapshot {
   sourceRound: number
   generatedAt: string
   kind: 'live' | 'backtest' | 'legacy'
+  /** 없으면 이월 비중 도입 전 버전 1 */
+  algorithmVersion?: number
   games: SavedRecommendationGame[]
 }
 
@@ -34,6 +36,31 @@ export interface RecommendationRoundOutcome {
 }
 
 const STORAGE_KEY = 'lucky45.recommendationHistory.v1'
+
+// 1,244회 당시 앱이 제공한 상위 10게임(1,243회까지의 데이터, 알고리즘 버전 1)을 고정 보관한다.
+const LEGACY_1244_TOP: [number[], number][] = [
+  [[13, 18, 21, 31, 34, 38], 90.2],
+  [[11, 13, 16, 31, 34, 44], 90.2],
+  [[13, 18, 20, 27, 31, 34], 89.4],
+  [[7, 13, 16, 31, 38, 40], 89.1],
+  [[11, 13, 20, 31, 34, 38], 89],
+  [[12, 13, 18, 24, 27, 31], 88.8],
+  [[12, 13, 18, 24, 37, 38], 88.2],
+  [[4, 15, 18, 27, 31, 38], 87.8],
+  [[7, 13, 18, 34, 38, 45], 86.9],
+  [[13, 15, 18, 28, 38, 45], 86.8],
+]
+
+export function createLegacy1244Snapshot(generatedAt = new Date().toISOString()): RecommendationSnapshot {
+  return {
+    targetRound: 1244,
+    sourceRound: 1243,
+    generatedAt,
+    kind: 'legacy',
+    algorithmVersion: 1,
+    games: LEGACY_1244_TOP.map(([numbers, score], index) => ({ category: 'top', index: index + 1, numbers: [...numbers], score })),
+  }
+}
 
 function isNumberSet(numbers: unknown): numbers is number[] {
   return Array.isArray(numbers) && numbers.length === 6 && new Set(numbers).size === 6 && numbers.every((number) => Number.isInteger(number) && number >= 1 && number <= 45)
@@ -65,6 +92,7 @@ export function createRecommendationSnapshot(sets: RecommendationSets, targetRou
     sourceRound,
     generatedAt,
     kind,
+    algorithmVersion: ALGORITHM_VERSION,
     games: [
       ...toGames('top', sets.top),
       ...toGames('bottom', sets.bottom),
@@ -83,10 +111,12 @@ export function readRecommendationHistory(storage: Pick<Storage, 'getItem'> = lo
   }
 }
 
+// 호출 시점에 아직 추첨 전인 회차만 넘겨야 한다. 같은 회차라도 알고리즘 버전이 바뀐 live 기록은 새 결과로 교체한다.
 export function saveRecommendationSnapshot(snapshot: RecommendationSnapshot, storage: Pick<Storage, 'getItem' | 'setItem'> = localStorage) {
   const history = readRecommendationHistory(storage)
-  if (history.some((item) => item.targetRound === snapshot.targetRound)) return history
-  const next = [snapshot, ...history].sort((a, b) => b.targetRound - a.targetRound)
+  const existing = history.find((item) => item.targetRound === snapshot.targetRound)
+  if (existing && (existing.kind !== 'live' || (existing.algorithmVersion ?? 1) === snapshot.algorithmVersion)) return history
+  const next = [snapshot, ...history.filter((item) => item !== existing)].sort((a, b) => b.targetRound - a.targetRound)
   try {
     storage.setItem(STORAGE_KEY, JSON.stringify(next))
   } catch {

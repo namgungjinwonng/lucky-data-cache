@@ -1,7 +1,7 @@
 // 추천 스냅샷 보존과 로또 등수·당첨금 계산을 검증하는 테스트
 import { describe, expect, it } from 'vitest'
 import type { RecommendationSets } from './analysis'
-import { createRecommendationSnapshot, evaluateGame, evaluateRecommendationHistory, saveLegacyRecommendationSnapshot, saveRecommendationSnapshot } from './recommendation-history'
+import { createLegacy1244Snapshot, createRecommendationSnapshot, evaluateGame, evaluateRecommendationHistory, saveLegacyRecommendationSnapshot, saveRecommendationSnapshot } from './recommendation-history'
 import type { HistoricalDraw } from './history-data'
 
 const draw: HistoricalDraw = {
@@ -18,7 +18,8 @@ const combinations = (count: number, start: number) => Array.from({ length: coun
   rank: index + 1,
   numbers: Array.from({ length: 6 }, (_, offset) => ((start + index + offset - 1) % 45) + 1).sort((a, b) => a - b),
   score: 90 - index,
-  components: { frequency: 50, recent: 50, pairs: 50, balance: 50 },
+  carried: 0,
+  components: { frequency: 50, recent: 50, pairs: 50, balance: 50, carryover: 50 },
 }))
 
 const sets: RecommendationSets = { top: combinations(10, 1), bottom: combinations(5, 15), mixed: combinations(5, 30) }
@@ -41,6 +42,23 @@ describe('추천 당첨 이력', () => {
     saveRecommendationSnapshot(first, storage)
     const saved = saveRecommendationSnapshot(changed, storage)
     expect(saved).toEqual([first])
+  })
+
+  it('추첨 전 회차의 이전 알고리즘 live 기록은 새 결과로 교체한다', () => {
+    const values = new Map<string, string>()
+    const storage = { getItem: (key: string) => values.get(key) ?? null, setItem: (key: string, value: string) => { values.set(key, value) } }
+    const older = createRecommendationSnapshot(sets, 125, 124, '2026-10-04T00:00:00.000Z')
+    delete older.algorithmVersion
+    saveRecommendationSnapshot(older, storage)
+    const current = createRecommendationSnapshot({ ...sets, top: [...sets.top].reverse() }, 125, 124, '2026-10-05T00:00:00.000Z')
+    expect(saveRecommendationSnapshot(current, storage)).toEqual([current])
+  })
+
+  it('1244회 고정 기록은 당시 상위 10게임과 실제 결과 120,000원을 유지한다', () => {
+    const legacy = createLegacy1244Snapshot()
+    const draw1244: HistoricalDraw = { round: 1244, date: '2026-10-03', numbers: [1, 13, 18, 26, 34, 38], bonus: 25, firstPrize: 1_604_686_625, winners: 18, prizes: { 1: 1_604_686_625, 2: 60_175_749, 3: 1_290_287, 4: 50_000, 5: 5_000 } }
+    expect(legacy.games).toHaveLength(10)
+    expect(evaluateRecommendationHistory([legacy], [draw1244]).totalPrize).toBe(120_000)
   })
 
   it('기존 1244회 기록은 상위 10게임으로 교체한다', () => {

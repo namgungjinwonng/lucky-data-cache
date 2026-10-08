@@ -3,6 +3,25 @@ import type { HistoricalDraw } from './history-data'
 
 export const JACKPOT_ODDS = 8_145_060
 
+// 분석 가중치나 후보 생성 방식이 바뀌면 올려서 아직 추첨 전인 회차의 저장 추천을 새 결과로 교체한다.
+export const ALGORITHM_VERSION = 2
+
+export const SCORE_WEIGHTS = { frequency: 0.21, recent: 0.24, pairs: 0.22, balance: 0.23, carryover: 0.1 } as const
+
+// 직전 연속 출현 주수는 3주 이상을 하나로 묶는다.
+const MAX_STREAK = 3
+// 표본이 적은 연속 구간이 과대평가되지 않도록 이론 확률 6/45 쪽으로 당기는 가상 관측 수
+const STREAK_PRIOR = 100
+
+export interface CarryoverStats {
+  /** 직전 회차 번호가 k개 이어서 나온 회차 비율, 인덱스 0~6 */
+  distribution: number[]
+  /** 직전 s주 연속 나온 번호가 다음 회차에 다시 나온 비율, 인덱스 0은 직전 회차에 없던 번호 */
+  streakRate: number[]
+  /** 최신 회차 기준 번호별 연속 출현 주수, 0~MAX_STREAK */
+  streaks: number[]
+}
+
 export interface RankedCombination {
   rank: number
   numbers: number[]
@@ -12,7 +31,10 @@ export interface RankedCombination {
     recent: number
     pairs: number
     balance: number
+    carryover: number
   }
+  /** 직전 회차 당첨번호와 겹치는 개수 */
+  carried: number
 }
 
 export interface RecommendationSets {
@@ -91,6 +113,37 @@ function createWeightedCandidate(numbers: number[], weights: number[], random: (
   return selected.sort((a, b) => a - b)
 }
 
+// 직전 회차 번호의 이월 개수와 2·3주 연속 출현 번호의 재출현 비율을 역대 데이터에서 측정한다.
+export function analyzeCarryover(draws: HistoricalDraw[]): CarryoverStats {
+  const ascending = [...draws].sort((a, b) => a.round - b.round)
+  const counts = Array(7).fill(0) as number[]
+  const trials = Array(MAX_STREAK + 1).fill(0) as number[]
+  const hits = Array(MAX_STREAK + 1).fill(0) as number[]
+  const running = Array(46).fill(0) as number[]
+
+  ascending.forEach((draw, index) => {
+    const current = new Set(draw.numbers)
+    if (index > 0) {
+      counts[ascending[index - 1].numbers.filter((number) => current.has(number)).length] += 1
+      for (let number = 1; number <= 45; number += 1) {
+        trials[running[number]] += 1
+        if (current.has(number)) hits[running[number]] += 1
+      }
+    }
+    for (let number = 1; number <= 45; number += 1) {
+      running[number] = current.has(number) ? Math.min(MAX_STREAK, running[number] + 1) : 0
+    }
+  })
+
+  const total = Math.max(1, ascending.length - 1)
+  const base = 6 / 45
+  return {
+    distribution: counts.map((count) => count / total),
+    streakRate: hits.map((hit, streak) => (hit + base * STREAK_PRIOR) / (trials[streak] + STREAK_PRIOR)),
+    streaks: running,
+  }
+}
+
 function createAnalysisModel(draws: HistoricalDraw[], poolSize: number): AnalysisModel {
   if (draws.length < 20) throw new Error('패턴 분석에는 최소 20개 회차가 필요합니다.')
   const ordered = [...draws].sort((a, b) => b.round - a.round)
@@ -127,6 +180,10 @@ function createAnalysisModel(draws: HistoricalDraw[], poolSize: number): Analysi
   const maxLow = Math.max(...lowDistribution)
   const sumMean = average(sums)
   const sumDeviation = Math.sqrt(average(sums.map((sum) => (sum - sumMean) ** 2)))
+  const carryover = analyzeCarryover(draws)
+  const maxCarry = Math.max(...carryover.distribution)
+  const maxStreakRate = Math.max(...carryover.streakRate)
+  const latestNumbers = new Set(ordered[0].numbers)
   const random = seededRandom((ordered[0].round + 1) * 2_654_435_761)
   const seen = new Set<string>()
   const candidates: Candidate[] = []
@@ -149,14 +206,20 @@ function createAnalysisModel(draws: HistoricalDraw[], poolSize: number): Analysi
       oddDistribution[oddCount] / maxOdd,
       lowDistribution[lowCount] / maxLow,
     ])
+    const carried = numbers.filter((number) => latestNumbers.has(number)).length
+    const carryoverScore = (carryover.distribution[carried] / maxCarry) * 0.7
+      + average(numbers.map((number) => carryover.streakRate[carryover.streaks[number]] / maxStreakRate)) * 0.3
     return {
       numbers,
-      rawScore: frequencyScore * 0.24 + recentScore * 0.27 + pairsScore * 0.24 + balanceScore * 0.25,
+      carried,
+      rawScore: frequencyScore * SCORE_WEIGHTS.frequency + recentScore * SCORE_WEIGHTS.recent + pairsScore * SCORE_WEIGHTS.pairs
+        + balanceScore * SCORE_WEIGHTS.balance + carryoverScore * SCORE_WEIGHTS.carryover,
       components: {
         frequency: Math.round(frequencyScore * 100),
         recent: Math.round(recentScore * 100),
         pairs: Math.round(pairsScore * 100),
         balance: Math.round(balanceScore * 100),
+        carryover: Math.round(carryoverScore * 100),
       },
     }
   }
@@ -191,14 +254,10 @@ function toRanked(candidates: Candidate[], mean: number, deviation: number): Ran
   return candidates.map((candidate, index) => ({
     rank: index + 1,
     numbers: candidate.numbers,
+    carried: candidate.carried,
     score: Math.round(Math.max(0, Math.min(100, 50 + ((candidate.rawScore - mean) / deviation) * 12)) * 10) / 10,
     components: candidate.components,
   }))
-}
-
-export function rankCombinations(draws: HistoricalDraw[], count = 10, poolSize = 30_000): RankedCombination[] {
-  const model = createAnalysisModel(draws, poolSize)
-  return toRanked(selectDiverse(model.candidates, count), model.mean, model.deviation)
 }
 
 export function rankRecommendationSets(draws: HistoricalDraw[], poolSize = 30_000): RecommendationSets {

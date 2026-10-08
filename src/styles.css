@@ -113,7 +113,7 @@ button:disabled { cursor: not-allowed; opacity: .35; }
 .number-ball--grey { border-color: #8d8d8d; background: #aaa; color: #181818; }
 .number-ball--green { border-color: #8fbb24; background: #b0d840; color: #182108; }
 .result-card .number-ball { width: clamp(38px, 11vw, 46px); font-size: 14px; }
-.result-card__telemetry { display: grid; grid-template-columns: repeat(4, auto); justify-content: start; gap: 3px 12px; margin-top: 7px; color: var(--result-muted); font-size: 8px; line-height: 1.2; letter-spacing: .1px; }
+.result-card__telemetry { display: grid; grid-template-columns: repeat(5, auto); justify-content: start; gap: 3px 12px; margin-top: 7px; color: var(--result-muted); font-size: 8px; line-height: 1.2; letter-spacing: .1px; }
 .result-card__telemetry b { margin-left: 3px; color: var(--result-ink); }
 .loading-copy { color: var(--result-muted); font-size: 13px; }
 .recommendation-tabs { display: grid; grid-template-columns: repeat(4, 1fr); margin-bottom: 14px; border: 1px solid var(--result-line); }
