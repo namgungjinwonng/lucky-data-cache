@@ -2,7 +2,8 @@
 import { ALGORITHM_VERSION, type RankedCombination, type RecommendationSets } from './analysis'
 import type { HistoricalDraw, PrizeAmounts } from './history-data'
 
-export type RecommendationCategory = 'top' | 'bottom' | 'mixed'
+// bottom/mixed는 이전 버전의 저장 기록을 그대로 읽기 위해 유지한다.
+export type RecommendationCategory = 'top' | 'bottom' | 'mixed' | 'dispersion'
 
 export interface SavedRecommendationGame {
   category: RecommendationCategory
@@ -73,7 +74,7 @@ function isSnapshot(value: unknown): value is RecommendationSnapshot {
   const expectedGameCount = kind === 'legacy' ? 10 : 20
   return Number.isInteger(snapshot.targetRound) && Number.isInteger(snapshot.sourceRound) && typeof snapshot.generatedAt === 'string' && ['live', 'backtest', 'legacy'].includes(kind) && Array.isArray(snapshot.games)
     && snapshot.games.length === expectedGameCount && snapshot.games.every((game) =>
-      ['top', 'bottom', 'mixed'].includes(game.category) && Number.isInteger(game.index) && isNumberSet(game.numbers) && typeof game.score === 'number',
+      ['top', 'bottom', 'mixed', 'dispersion'].includes(game.category) && Number.isInteger(game.index) && isNumberSet(game.numbers) && typeof game.score === 'number',
     )
 }
 
@@ -95,8 +96,7 @@ export function createRecommendationSnapshot(sets: RecommendationSets, targetRou
     algorithmVersion: ALGORITHM_VERSION,
     games: [
       ...toGames('top', sets.top),
-      ...toGames('bottom', sets.bottom),
-      ...toGames('mixed', sets.mixed),
+      ...toGames('dispersion', sets.dispersion),
     ],
   }
 }
@@ -111,11 +111,28 @@ export function readRecommendationHistory(storage: Pick<Storage, 'getItem'> = lo
   }
 }
 
-// 호출 시점에 아직 추첨 전인 회차만 넘겨야 한다. 같은 회차라도 알고리즘 버전이 바뀐 live 기록은 새 결과로 교체한다.
-export function saveRecommendationSnapshot(snapshot: RecommendationSnapshot, storage: Pick<Storage, 'getItem' | 'setItem'> = localStorage) {
+export interface RecommendationSaveContext {
+  latestRound: number
+  sourceDate: string
+  now?: number
+}
+
+// 기록 보존을 위해 다음 회차 날짜의 20시(KST)에 추천 교체를 마감한다.
+// 오래된 오프라인 캐시를 '미래 회차'로 잘못 판단하여 과거 결과를 바꾸지 않는다.
+export function isRecommendationOpen(snapshot: Pick<RecommendationSnapshot, 'kind' | 'sourceRound' | 'targetRound'>, context: RecommendationSaveContext) {
+  if (snapshot.kind !== 'live' || snapshot.sourceRound !== context.latestRound || snapshot.targetRound !== snapshot.sourceRound + 1) return false
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(context.sourceDate)) return false
+  const sourceDay = Date.parse(`${context.sourceDate}T00:00:00Z`)
+  if (!Number.isFinite(sourceDay) || new Date(sourceDay).toISOString().slice(0, 10) !== context.sourceDate) return false
+  const cutoff = sourceDay + 7 * 86_400_000 + 11 * 3_600_000
+  return (context.now ?? Date.now()) < cutoff
+}
+
+export function saveRecommendationSnapshot(snapshot: RecommendationSnapshot, context: RecommendationSaveContext, storage: Pick<Storage, 'getItem' | 'setItem'> = localStorage) {
   const history = readRecommendationHistory(storage)
+  if (!isRecommendationOpen(snapshot, context)) return history
   const existing = history.find((item) => item.targetRound === snapshot.targetRound)
-  if (existing && (existing.kind !== 'live' || (existing.algorithmVersion ?? 1) === snapshot.algorithmVersion)) return history
+  if (existing && (existing.kind !== 'live' || (existing.algorithmVersion ?? 1) >= (snapshot.algorithmVersion ?? 1))) return history
   const next = [snapshot, ...history.filter((item) => item !== existing)].sort((a, b) => b.targetRound - a.targetRound)
   try {
     storage.setItem(STORAGE_KEY, JSON.stringify(next))
@@ -128,8 +145,9 @@ export function saveRecommendationSnapshot(snapshot: RecommendationSnapshot, sto
 export function saveLegacyRecommendationSnapshot(snapshot: RecommendationSnapshot, storage: Pick<Storage, 'getItem' | 'setItem'> = localStorage) {
   if (snapshot.kind !== 'legacy') return readRecommendationHistory(storage)
   const saved = readRecommendationHistory(storage)
-  if (saved.some((item) => item.targetRound === snapshot.targetRound && item.kind === 'legacy' && item.games.length === 10)) return saved
-  const history = saved.filter((item) => item.targetRound !== snapshot.targetRound)
+  // 이미 저장한 당시 추천은 종류·게임 수와 관계없이 보존한다.
+  if (saved.some((item) => item.targetRound === snapshot.targetRound)) return saved
+  const history = saved
   const next = [snapshot, ...history].sort((a, b) => b.targetRound - a.targetRound)
   try {
     storage.setItem(STORAGE_KEY, JSON.stringify(next))

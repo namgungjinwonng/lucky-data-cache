@@ -116,7 +116,7 @@ button:disabled { cursor: not-allowed; opacity: .35; }
 .result-card__telemetry { display: grid; grid-template-columns: repeat(5, auto); justify-content: start; gap: 3px 12px; margin-top: 7px; color: var(--result-muted); font-size: 8px; line-height: 1.2; letter-spacing: .1px; }
 .result-card__telemetry b { margin-left: 3px; color: var(--result-ink); }
 .loading-copy { color: var(--result-muted); font-size: 13px; }
-.recommendation-tabs { display: grid; grid-template-columns: repeat(4, 1fr); margin-bottom: 14px; border: 1px solid var(--result-line); }
+.recommendation-tabs { display: grid; grid-template-columns: repeat(3, 1fr); margin-bottom: 14px; border: 1px solid var(--result-line); }
 .recommendation-tabs button { min-height: 42px; padding: 0 3px; border: 0; border-right: 1px solid var(--result-line); background: transparent; color: var(--result-muted); font-size: 10px; font-weight: 750; }
 .recommendation-tabs button:last-child { border-right: 0; }
 .recommendation-tabs button.is-active { background: var(--primary); color: #fff; }

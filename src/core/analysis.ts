@@ -1,10 +1,11 @@
 // 역대 당첨 패턴을 점수화해 다음 회차의 결정적 추천 조합 10개를 계산하는 분석 엔진
 import type { HistoricalDraw } from './history-data'
+import { selectDispersion } from './dispersion'
 
 export const JACKPOT_ODDS = 8_145_060
 
 // 분석 가중치나 후보 생성 방식이 바뀌면 올려서 아직 추첨 전인 회차의 저장 추천을 새 결과로 교체한다.
-export const ALGORITHM_VERSION = 2
+export const ALGORITHM_VERSION = 3
 
 export const SCORE_WEIGHTS = { frequency: 0.21, recent: 0.24, pairs: 0.22, balance: 0.23, carryover: 0.1 } as const
 
@@ -39,8 +40,7 @@ export interface RankedCombination {
 
 export interface RecommendationSets {
   top: RankedCombination[]
-  bottom: RankedCombination[]
-  mixed: RankedCombination[]
+  dispersion: RankedCombination[]
 }
 
 interface Candidate extends Omit<RankedCombination, 'rank' | 'score'> {
@@ -51,9 +51,6 @@ interface AnalysisModel {
   candidates: Candidate[]
   mean: number
   deviation: number
-  normalizedFrequency: number[]
-  normalizedRecent: number[]
-  scoreNumbers: (numbers: number[]) => Candidate
 }
 
 function seededRandom(seed: number) {
@@ -94,23 +91,6 @@ function createCandidate(random: () => number) {
     ;[values[index], values[swap]] = [values[swap], values[index]]
   }
   return values.slice(0, 6).sort((a, b) => a - b)
-}
-
-function createWeightedCandidate(numbers: number[], weights: number[], random: () => number) {
-  const available = numbers.map((number) => ({ number, weight: weights[number] }))
-  const selected: number[] = []
-  while (selected.length < 6 && available.length > 0) {
-    const total = available.reduce((sum, item) => sum + item.weight, 0)
-    let threshold = random() * total
-    let index = 0
-    while (index < available.length - 1 && threshold > available[index].weight) {
-      threshold -= available[index].weight
-      index += 1
-    }
-    selected.push(available[index].number)
-    available.splice(index, 1)
-  }
-  return selected.sort((a, b) => a - b)
 }
 
 // 직전 회차 번호의 이월 개수와 2·3주 연속 출현 번호의 재출현 비율을 역대 데이터에서 측정한다.
@@ -235,7 +215,7 @@ function createAnalysisModel(draws: HistoricalDraw[], poolSize: number): Analysi
   candidates.sort((a, b) => b.rawScore - a.rawScore || a.numbers.join('-').localeCompare(b.numbers.join('-')))
   const mean = average(candidates.map((candidate) => candidate.rawScore))
   const deviation = Math.sqrt(average(candidates.map((candidate) => (candidate.rawScore - mean) ** 2))) || 1
-  return { candidates, mean, deviation, normalizedFrequency, normalizedRecent, scoreNumbers }
+  return { candidates, mean, deviation }
 }
 
 function selectDiverse(candidates: Candidate[], count: number, excluded = new Set<string>()) {
@@ -263,38 +243,12 @@ function toRanked(candidates: Candidate[], mean: number, deviation: number): Ran
 export function rankRecommendationSets(draws: HistoricalDraw[], poolSize = 30_000): RecommendationSets {
   const model = createAnalysisModel(draws, poolSize)
   const topCandidates = selectDiverse(model.candidates, 10)
-  const topKeys = new Set(topCandidates.map((candidate) => candidate.numbers.join('-')))
-  const bottomCandidates = selectDiverse([...model.candidates].reverse(), 5, topKeys)
-  const sourceKeys = new Set([...topKeys, ...bottomCandidates.map((candidate) => candidate.numbers.join('-'))])
-  const topNumbers = new Set(topCandidates.flatMap((candidate) => candidate.numbers))
-  const bottomNumbers = new Set(bottomCandidates.flatMap((candidate) => candidate.numbers))
-  const sourceNumbers = [...new Set([...topNumbers, ...bottomNumbers])]
-  const topOnly = new Set(sourceNumbers.filter((number) => topNumbers.has(number) && !bottomNumbers.has(number)))
-  const bottomOnly = new Set(sourceNumbers.filter((number) => bottomNumbers.has(number) && !topNumbers.has(number)))
-  const numberWeights = Array(46).fill(0.05) as number[]
-  sourceNumbers.forEach((number) => {
-    const priority = model.normalizedFrequency[number] * 0.45 + model.normalizedRecent[number] * 0.55
-    numberWeights[number] = 0.05 + priority ** 2
-  })
-
-  const random = seededRandom((((Math.max(...draws.map((draw) => draw.round)) + 1) * 2_654_435_761) ^ 0x9e3779b9) >>> 0)
-  const mixedMap = new Map<string, Candidate>()
-  let attempts = 0
-  while (mixedMap.size < Math.min(6_000, poolSize) && attempts < poolSize * 5) {
-    attempts += 1
-    const numbers = createWeightedCandidate(sourceNumbers, numberWeights, random)
-    if (numbers.length !== 6) break
-    if (topOnly.size > 0 && !numbers.some((number) => topOnly.has(number))) continue
-    if (bottomOnly.size > 0 && !numbers.some((number) => bottomOnly.has(number))) continue
-    const key = numbers.join('-')
-    if (sourceKeys.has(key) || mixedMap.has(key)) continue
-    mixedMap.set(key, model.scoreNumbers(numbers))
-  }
-  const mixedCandidates = [...mixedMap.values()].sort((a, b) => b.rawScore - a.rawScore || a.numbers.join('-').localeCompare(b.numbers.join('-')))
+  // 별도 난수열을 사용해 상위 10게임을 만드는 기존 후보와 순서를 보존한다.
+  const random = seededRandom((Math.max(...draws.map((draw) => draw.round)) + 1) * 524_287 + 88_601)
+  const dispersionCandidates = selectDispersion(model.candidates, topCandidates, random)
 
   return {
     top: toRanked(topCandidates, model.mean, model.deviation),
-    bottom: toRanked(bottomCandidates, model.mean, model.deviation),
-    mixed: toRanked(selectDiverse(mixedCandidates, 5), model.mean, model.deviation),
+    dispersion: toRanked(dispersionCandidates, model.mean, model.deviation),
   }
 }

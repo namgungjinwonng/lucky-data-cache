@@ -12,7 +12,7 @@ const draws: HistoricalDraw[] = Array.from({ length: 120 }, (_, index) => {
 
 describe('rankRecommendationSets', () => {
   it('같은 회차 데이터에서는 동일한 상위 10개 조합을 만든다', () => {
-    expect(rankRecommendationSets(draws, 2_000).top).toEqual(rankRecommendationSets(draws, 2_000).top)
+    expect(rankRecommendationSets(draws, 2_000)).toEqual(rankRecommendationSets(draws, 2_000))
   })
 
   it('중복 없는 유효 조합을 점수 내림차순으로 반환한다', () => {
@@ -39,20 +39,22 @@ describe('rankRecommendationSets', () => {
     ])
   })
 
-  it('상위 10·하위 5·혼합 5게임을 중복 없이 생성한다', () => {
+  it('상위 10게임과 겹침을 제한한 분산 10게임을 생성한다', () => {
     const sets = rankRecommendationSets(draws, 2_000)
-    const all = [...sets.top, ...sets.bottom, ...sets.mixed]
-    const topNumbers = new Set(sets.top.flatMap((item) => item.numbers))
-    const bottomNumbers = new Set(sets.bottom.flatMap((item) => item.numbers))
-    const topOnly = new Set([...topNumbers].filter((number) => !bottomNumbers.has(number)))
-    const bottomOnly = new Set([...bottomNumbers].filter((number) => !topNumbers.has(number)))
-
-    expect(sets.bottom).toHaveLength(5)
-    expect(sets.mixed).toHaveLength(5)
+    const all = [...sets.top, ...sets.dispersion]
+    expect(sets.dispersion).toHaveLength(10)
     expect(new Set(all.map((item) => item.numbers.join('-'))).size).toBe(20)
-    expect(sets.mixed.every((item) => item.numbers.every((number) => topNumbers.has(number) || bottomNumbers.has(number)))).toBe(true)
-    expect(sets.mixed.every((item) => item.numbers.some((number) => topOnly.has(number)) && item.numbers.some((number) => bottomOnly.has(number)))).toBe(true)
-    expect(Math.min(...sets.mixed.map((item) => item.score))).toBeGreaterThan(Math.max(...sets.bottom.map((item) => item.score)))
+    for (const game of sets.dispersion) {
+      expect(game.numbers).toHaveLength(6)
+      expect(new Set(game.numbers).size).toBe(6)
+      expect(game.numbers.every((n) => Number.isInteger(n) && n >= 1 && n <= 45)).toBe(true)
+      expect(game.numbers).toEqual([...game.numbers].sort((a, b) => a - b))
+      for (const other of all) {
+        if (other === game) continue
+        expect(game.numbers.filter((n) => other.numbers.includes(n)).length).toBeLessThanOrEqual(2)
+      }
+    }
+    expect(rankRecommendationSets([...draws].reverse(), 2_000)).toEqual(sets)
   })
 })
 

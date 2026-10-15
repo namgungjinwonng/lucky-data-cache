@@ -2,18 +2,19 @@
 import { useEffect, useMemo, useState } from 'react'
 import { RecommendationCarousel } from './components/RecommendationCarousel'
 import { StoreMap } from './components/StoreMap'
-import { JACKPOT_ODDS, SCORE_WEIGHTS, rankRecommendationSets } from './core/analysis'
+import { JACKPOT_ODDS, SCORE_WEIGHTS, type RecommendationSets } from './core/analysis'
+import type { RecommendationWorkerResult } from './core/recommendation-worker'
 import { type DrawSyncResult, syncLatestDraw } from './core/draw-data'
 import { type HistoryDataset, type WinnerStoreDataset, syncHistoryDataset, syncWinnerStores } from './core/history-data'
 import { ballTone } from './core/lotto'
-import { createLegacy1244Snapshot, createRecommendationSnapshot, evaluateRecommendationHistory, readRecommendationHistory, saveLegacyRecommendationSnapshot, saveRecommendationSnapshot, type RecommendationCategory, type RecommendationSnapshot } from './core/recommendation-history'
+import { createLegacy1244Snapshot, createRecommendationSnapshot, evaluateRecommendationHistory, isRecommendationOpen, readRecommendationHistory, saveLegacyRecommendationSnapshot, saveRecommendationSnapshot, type RecommendationCategory, type RecommendationSnapshot } from './core/recommendation-history'
 
 type AppMenu = 'ranking' | 'history' | 'nearby'
 type Theme = 'light' | 'dark'
-type RecommendationTab = RecommendationCategory | 'records'
+type RecommendationTab = keyof RecommendationSets | 'records'
 
 const THEME_KEY = 'lucky45.theme'
-const CATEGORY_LABELS: Record<RecommendationCategory, string> = { top: '상위', bottom: '하위', mixed: '혼합' }
+const CATEGORY_LABELS: Record<RecommendationCategory, string> = { top: '상위', bottom: '하위', mixed: '혼합', dispersion: '분산' }
 
 function readTheme(): Theme {
   const saved = localStorage.getItem(THEME_KEY)
@@ -38,6 +39,9 @@ function App() {
   const [loading, setLoading] = useState(true)
   const [recommendationTab, setRecommendationTab] = useState<RecommendationTab>('top')
   const [recommendationHistory, setRecommendationHistory] = useState<RecommendationSnapshot[]>(readRecommendationHistory)
+  const [analysis, setAnalysis] = useState<{ source: HistoryDataset; sets: RecommendationSets } | null>(null)
+  const [analysisError, setAnalysisError] = useState('')
+  const sourceDraw = useMemo(() => history?.draws.reduce((latest, draw) => draw.round > latest.round ? draw : latest) ?? null, [history])
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme
@@ -51,7 +55,7 @@ function App() {
       if (latestResult.status === 'fulfilled') setDrawResult(latestResult.value)
       if (historyResult.status === 'fulfilled') {
         setHistory(historyResult.value)
-        setSelectedRound(historyResult.value.draws[0].round)
+        setSelectedRound(Math.max(...historyResult.value.draws.map((draw) => draw.round)))
       }
       setLoading(false)
     })
@@ -63,7 +67,7 @@ function App() {
     let active = true
     setWinnerStores(null)
     setWinnerStatus('당첨 판매점을 불러오고 있습니다.')
-    syncWinnerStores(selectedRound, history.draws[0].round)
+    syncWinnerStores(selectedRound, Math.max(...history.draws.map((draw) => draw.round)))
       .then((dataset) => {
         if (!active) return
         setWinnerStores(dataset)
@@ -75,22 +79,56 @@ function App() {
     return () => { active = false }
   }, [history, menu, selectedRound])
 
-  const recommendationSets = useMemo(() => history ? rankRecommendationSets(history.draws) : null, [history])
+  useEffect(() => {
+    if (!history) return
+    let active = true
+    let worker: Worker | undefined
+    setAnalysisError('')
+    try {
+      worker = new Worker(new URL('./core/recommendation-worker.ts', import.meta.url), { type: 'module' })
+      worker.onmessage = (event: MessageEvent<RecommendationWorkerResult>) => {
+        if (!active) return
+        if (event.data.sets) setAnalysis({ source: history, sets: event.data.sets })
+        else setAnalysisError(event.data.error || '추천 조합을 계산하지 못했습니다.')
+        worker?.terminate()
+      }
+      worker.onerror = (event) => {
+        event.preventDefault()
+        if (active) setAnalysisError('추천 조합을 계산하지 못했습니다. 앱을 다시 열어주세요.')
+        worker?.terminate()
+      }
+      worker.postMessage(history.draws)
+    } catch {
+      setAnalysisError('추천 조합을 계산하지 못했습니다. 앱을 다시 열어주세요.')
+    }
+    return () => { active = false; worker?.terminate() }
+  }, [history])
+
+  const latestRound = Math.max(sourceDraw?.round ?? 0, drawResult?.draw.round ?? 0)
+  const sourceIsStale = !!sourceDraw && sourceDraw.round < latestRound
+  const computedSets = analysis?.source === history ? analysis?.sets : null
+  const recommendationOpen = !!sourceDraw && isRecommendationOpen(
+    { targetRound: sourceDraw.round + 1, sourceRound: sourceDraw.round, kind: 'live' },
+    { latestRound, sourceDate: sourceDraw.date },
+  )
+  const recommendationSets = !sourceIsStale && recommendationOpen ? computedSets : null
+  const recommendationStatus = sourceIsStale ? '최신 회차의 분석 데이터가 아직 없습니다. 앱을 다시 열어 갱신해주세요.'
+    : sourceDraw && !recommendationOpen ? '이번 회차 추천은 마감되었습니다. 저장된 추천은 당첨 이력에서 확인해주세요.'
+    : !loading && !history ? '분석 데이터를 불러오지 못했습니다. 앱을 다시 열어주세요.' : analysisError
   const selectedDraw = useMemo(() => history?.draws.find((draw) => draw.round === selectedRound) ?? null, [history, selectedRound])
-  const latestRound = history?.draws[0].round ?? drawResult?.draw.round ?? 0
   const recommendationOutcomes = useMemo(
     () => evaluateRecommendationHistory(recommendationHistory, history?.draws ?? []),
     [history, recommendationHistory],
   )
 
   useEffect(() => {
-    if (!history || !recommendationSets) return
-    const sourceRound = history.draws[0].round
+    if (!sourceDraw || !recommendationSets) return
+    const sourceRound = sourceDraw.round
     const snapshot = createRecommendationSnapshot(recommendationSets, sourceRound + 1, sourceRound)
-    let nextHistory = saveRecommendationSnapshot(snapshot)
+    let nextHistory = saveRecommendationSnapshot(snapshot, { latestRound, sourceDate: sourceDraw.date })
     if (sourceRound >= 1244) nextHistory = saveLegacyRecommendationSnapshot(createLegacy1244Snapshot())
     setRecommendationHistory(nextHistory)
-  }, [history, recommendationSets])
+  }, [sourceDraw, latestRound, recommendationSets])
 
   const moveRound = (delta: number) => {
     setSelectedRound((round) => Math.min(latestRound, Math.max(1, round + delta)))
@@ -138,7 +176,7 @@ function App() {
       {menu === 'ranking' && <>
         <section className="analysis-intro">
           <span className="section-label">NEXT · {latestRound ? latestRound + 1 : '—'} ROUND</span>
-          <h2>패턴 적합도 순위</h2>
+          <h2>패턴 상위 10 + 분산 10</h2>
           <p>전체 빈도 {percent(SCORE_WEIGHTS.frequency)} · 최근 가중 빈도 {percent(SCORE_WEIGHTS.recent)} · 번호 쌍 {percent(SCORE_WEIGHTS.pairs)} · 조합 형태 {percent(SCORE_WEIGHTS.balance)} · 지난 회차 이월 {percent(SCORE_WEIGHTS.carryover)}를 결합했습니다.</p>
           <div className="odds-notice"><strong>실제 1등 확률은 모두 동일</strong><span>1 / {JACKPOT_ODDS.toLocaleString('ko-KR')}</span><small>아래 점수는 과거 패턴과의 유사도이며 당첨확률이 아닙니다.</small></div>
         </section>
@@ -146,15 +184,14 @@ function App() {
         <section className="results">
           <div className="section-heading section-heading--light"><div><span className="section-label">STARTING GRID</span><h2>추천 조합 20</h2></div><span className="results__count">5 GAMES / PAGE</span></div>
           <div className="recommendation-tabs" role="tablist" aria-label="추천 조합 분류">
-            <button className={recommendationTab === 'top' ? 'is-active' : ''} type="button" role="tab" onClick={() => setRecommendationTab('top')}>상위 10</button>
-            <button className={recommendationTab === 'bottom' ? 'is-active' : ''} type="button" role="tab" onClick={() => setRecommendationTab('bottom')}>하위 5</button>
-            <button className={recommendationTab === 'mixed' ? 'is-active' : ''} type="button" role="tab" onClick={() => setRecommendationTab('mixed')}>혼합 5</button>
-            <button className={recommendationTab === 'records' ? 'is-active' : ''} type="button" role="tab" onClick={() => setRecommendationTab('records')}>당첨 이력</button>
+            <button className={recommendationTab === 'top' ? 'is-active' : ''} type="button" role="tab" aria-selected={recommendationTab === 'top'} onClick={() => setRecommendationTab('top')}>상위 10</button>
+            <button className={recommendationTab === 'dispersion' ? 'is-active' : ''} type="button" role="tab" aria-selected={recommendationTab === 'dispersion'} onClick={() => setRecommendationTab('dispersion')}>분산 10</button>
+            <button className={recommendationTab === 'records' ? 'is-active' : ''} type="button" role="tab" aria-selected={recommendationTab === 'records'} onClick={() => setRecommendationTab('records')}>당첨 이력</button>
           </div>
-          {recommendationTab === 'mixed' && <p className="recommendation-description">상위·하위 조합에 나온 번호 중 과거 패턴 점수가 높은 번호를 우선해 새로 조합합니다.</p>}
-          {!recommendationSets ? <p className="loading-copy">역대 데이터를 분석하고 있습니다.</p> : recommendationTab !== 'records' ? <RecommendationCarousel
+          {recommendationTab === 'dispersion' && <p className="recommendation-description">상위 10게임을 유지하고, 추가 게임의 번호 중복을 줄여 당첨 기회를 분산합니다. 카드 점수는 과거 패턴 유사도입니다.</p>}
+          {recommendationTab !== 'records' ? !recommendationSets ? <p className="loading-copy" role="status">{recommendationStatus || '역대 데이터를 분석하고 있습니다.'}</p> : <RecommendationCarousel
             combinations={recommendationSets[recommendationTab]}
-            rankLabel={recommendationTab === 'top' ? 'RANK' : recommendationTab === 'bottom' ? 'LOW' : 'MIX'}
+            rankLabel={recommendationTab === 'top' ? 'RANK' : 'COVER'}
           /> : <div className="recommendation-history">
             <div className="recommendation-summary">
               <span>추천 조합 누적 당첨금</span>

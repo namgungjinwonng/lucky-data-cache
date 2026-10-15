@@ -17,3 +17,4 @@ android/build/
 *.keystore
 *.p12
 release-signing/
+/.test-tmp/
