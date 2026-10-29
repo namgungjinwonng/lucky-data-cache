@@ -5,7 +5,7 @@ import { selectDispersion } from './dispersion'
 export const JACKPOT_ODDS = 8_145_060
 
 // 분석 가중치나 후보 생성 방식이 바뀌면 올려서 아직 추첨 전인 회차의 저장 추천을 새 결과로 교체한다.
-export const ALGORITHM_VERSION = 3
+export const ALGORITHM_VERSION = 4
 
 export const SCORE_WEIGHTS = { frequency: 0.21, recent: 0.24, pairs: 0.22, balance: 0.23, carryover: 0.1 } as const
 
@@ -43,7 +43,7 @@ export interface RecommendationSets {
   dispersion: RankedCombination[]
 }
 
-interface Candidate extends Omit<RankedCombination, 'rank' | 'score'> {
+export interface Candidate extends Omit<RankedCombination, 'rank' | 'score'> {
   rawScore: number
 }
 
@@ -51,6 +51,7 @@ interface AnalysisModel {
   candidates: Candidate[]
   mean: number
   deviation: number
+  scoreNumbers: (numbers: number[]) => Candidate
 }
 
 function seededRandom(seed: number) {
@@ -124,7 +125,7 @@ export function analyzeCarryover(draws: HistoricalDraw[]): CarryoverStats {
   }
 }
 
-function createAnalysisModel(draws: HistoricalDraw[], poolSize: number): AnalysisModel {
+export function createAnalysisModel(draws: HistoricalDraw[], poolSize: number): AnalysisModel {
   if (draws.length < 20) throw new Error('패턴 분석에는 최소 20개 회차가 필요합니다.')
   const ordered = [...draws].sort((a, b) => b.round - a.round)
   const frequency = Array(46).fill(0) as number[]
@@ -215,7 +216,7 @@ function createAnalysisModel(draws: HistoricalDraw[], poolSize: number): Analysi
   candidates.sort((a, b) => b.rawScore - a.rawScore || a.numbers.join('-').localeCompare(b.numbers.join('-')))
   const mean = average(candidates.map((candidate) => candidate.rawScore))
   const deviation = Math.sqrt(average(candidates.map((candidate) => (candidate.rawScore - mean) ** 2))) || 1
-  return { candidates, mean, deviation }
+  return { candidates, mean, deviation, scoreNumbers }
 }
 
 function selectDiverse(candidates: Candidate[], count: number, excluded = new Set<string>()) {
@@ -230,7 +231,7 @@ function selectDiverse(candidates: Candidate[], count: number, excluded = new Se
   return selected
 }
 
-function toRanked(candidates: Candidate[], mean: number, deviation: number): RankedCombination[] {
+export function toRanked(candidates: Candidate[], mean: number, deviation: number): RankedCombination[] {
   return candidates.map((candidate, index) => ({
     rank: index + 1,
     numbers: candidate.numbers,
@@ -241,6 +242,7 @@ function toRanked(candidates: Candidate[], mean: number, deviation: number): Ran
 }
 
 export function rankRecommendationSets(draws: HistoricalDraw[], poolSize = 30_000): RecommendationSets {
+  // 버전 3 기준 조합 재현용. 앱의 새 구간 배분은 adaptive-recommendations에서 수행한다.
   const model = createAnalysisModel(draws, poolSize)
   const topCandidates = selectDiverse(model.candidates, 10)
   // 별도 난수열을 사용해 상위 10게임을 만드는 기존 후보와 순서를 보존한다.

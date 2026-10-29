@@ -1,14 +1,14 @@
-import { rankRecommendationSets, type RecommendationSets } from './analysis'
+import { buildAdaptiveRecommendations, type AdaptiveRecommendation, type PatternScoreRecord } from './adaptive-recommendations'
 import type { HistoricalDraw } from './history-data'
 
 export interface RecommendationWorkerResult {
-  sets?: RecommendationSets
+  result?: AdaptiveRecommendation
   error?: string
 }
 
-self.onmessage = (event: MessageEvent<HistoricalDraw[]>) => {
+self.onmessage = async (event: MessageEvent<{ draws: HistoricalDraw[]; cache: PatternScoreRecord[] }>) => {
   try {
-    self.postMessage({ sets: rankRecommendationSets(event.data) } satisfies RecommendationWorkerResult)
+    self.postMessage({ result: await buildAdaptiveRecommendations(event.data.draws, event.data.cache) } satisfies RecommendationWorkerResult)
   } catch (error) {
     self.postMessage({ error: error instanceof Error ? error.message : '추천 조합을 계산하지 못했습니다.' } satisfies RecommendationWorkerResult)
   }

@@ -196,6 +196,15 @@ footer { display: grid; gap: 18px; padding: 48px 24px calc(48px + env(safe-area-
 footer p, footer small { margin: 0; color: var(--body); font-size: 11px; line-height: 1.65; }
 footer small { color: var(--muted); }
 
+.latest-pattern-score strong { display: inline-block; margin-left: 6px; }
+.latest-pattern-score small { display: block; margin-top: 5px; font-size: 10px; }
+.score-allocation { margin: 20px 0; padding: 16px; border: 1px solid var(--line); color: var(--ink); }
+.score-allocation h3 { margin: 0 0 8px; font-size: 15px; }
+.score-allocation p, .score-allocation small { color: var(--body); font-size: 11px; line-height: 1.6; }
+.score-allocation__row { display: grid; grid-template-columns: 1fr 1fr 1.3fr; gap: 8px; padding: 8px 0; border-bottom: 1px solid var(--line); font-size: 12px; }
+.score-allocation__row > :not(:first-child) { text-align: right; }
+.score-allocation > small { display: block; margin-top: 10px; }
+
 @media (min-width: 480px) {
   .latest-band { flex-direction: row; align-items: center; justify-content: space-between; }
 }

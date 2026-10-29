@@ -30,6 +30,7 @@ function tripleId(a: number, b: number, c: number) {
 
 export function selectDispersion<T extends { numbers: readonly number[] }>(
   rankedCandidates: readonly T[], top: readonly T[], random: () => number, count = 10,
+  canSelect: (candidate: T, selected: readonly T[]) => boolean = () => true,
 ): T[] {
   const words = SAMPLE_COUNT / 32
   const tripleDraws = new Uint32Array(14_190 * words)
@@ -75,7 +76,7 @@ export function selectDispersion<T extends { numbers: readonly number[] }>(
     let bestGain = -1
     let bestExposure = Infinity
     for (let i = 0; i < candidates.length; i += 1) {
-      if (!active[i]) continue
+      if (!active[i] || !canSelect(candidates[i], selected)) continue
       let gain = 0
       for (let word = 0; word < words; word += 1) gain += popcount(coverage[i * words + word] & uncovered[word])
       const repeated = candidates[i].numbers.reduce((sum, number) => sum + exposure[number], 0)

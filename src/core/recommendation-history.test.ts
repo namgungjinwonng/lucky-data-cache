@@ -54,7 +54,7 @@ describe('추천 당첨 이력', () => {
     const current = createRecommendationSnapshot({ ...sets, dispersion: [...sets.dispersion].reverse() }, 125, 124, '2026-10-05T00:00:00.000Z')
     expect(saveRecommendationSnapshot(current, pending, storage)).toEqual([current])
     expect(current.games.slice(0, 10)).toEqual(older.games.slice(0, 10))
-    expect(current.games.slice(10).every((g) => g.category === 'dispersion')).toBe(true)
+    expect(current.games.every((g) => g.category === 'balanced')).toBe(true)
   })
 
   it('오래된 오프라인 캐시라도 마감된 회차는 교체하거나 소급 생성하지 않는다', () => {
@@ -74,7 +74,7 @@ describe('추천 당첨 이력', () => {
   it('더 높은 알고리즘 버전의 기록을 낮은 버전으로 되돌리지 않는다', () => {
     const values = new Map<string, string>()
     const storage = { getItem: (key: string) => values.get(key) ?? null, setItem: (key: string, value: string) => { values.set(key, value) } }
-    const newer = { ...createRecommendationSnapshot(sets, 125, 124), algorithmVersion: 4 }
+    const newer = { ...createRecommendationSnapshot(sets, 125, 124), algorithmVersion: 5 }
     saveRecommendationSnapshot(newer, pending, storage)
     expect(saveRecommendationSnapshot(createRecommendationSnapshot(sets, 125, 124), pending, storage)).toEqual([newer])
   })
@@ -88,6 +88,7 @@ describe('추천 당첨 이력', () => {
 
   it('이전 하위·혼합 기록의 번호와 분류를 보존해 읽는다', () => {
     const old = { ...createRecommendationSnapshot(sets, 125, 124), algorithmVersion: 2 }
+    old.games.slice(0, 10).forEach(g => { g.category = 'top' })
     old.games.slice(10).forEach((g, i) => { g.category = i < 5 ? 'bottom' : 'mixed'; g.index = i % 5 + 1 })
     expect(readRecommendationHistory({ getItem: () => JSON.stringify([old]) })).toEqual([old])
   })
@@ -104,8 +105,7 @@ describe('추천 당첨 이력', () => {
     const storage = { getItem: (key: string) => values.get(key) ?? null, setItem: (key: string, value: string) => { values.set(key, value) } }
     const existing = createRecommendationSnapshot(sets, 1244, 1243)
     saveRecommendationSnapshot(existing, { latestRound: 1243, sourceDate: '2026-09-26', now: Date.parse('2026-09-28T00:00:00Z') }, storage)
-    const legacy = createRecommendationSnapshot(sets, 1244, 1243, '2026-10-05T00:00:00.000Z', 'legacy')
-    legacy.games = legacy.games.filter((game) => game.category === 'top')
+    const legacy = createLegacy1244Snapshot('2026-10-05T00:00:00.000Z')
     const saved = saveLegacyRecommendationSnapshot(legacy, storage)
     expect(saved).toEqual([existing])
     expect(saved[0].games).toHaveLength(20)

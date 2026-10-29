@@ -3,7 +3,7 @@ import { ALGORITHM_VERSION, type RankedCombination, type RecommendationSets } fr
 import type { HistoricalDraw, PrizeAmounts } from './history-data'
 
 // bottom/mixed는 이전 버전의 저장 기록을 그대로 읽기 위해 유지한다.
-export type RecommendationCategory = 'top' | 'bottom' | 'mixed' | 'dispersion'
+export type RecommendationCategory = 'top' | 'bottom' | 'mixed' | 'dispersion' | 'balanced'
 
 export interface SavedRecommendationGame {
   category: RecommendationCategory
@@ -74,7 +74,7 @@ function isSnapshot(value: unknown): value is RecommendationSnapshot {
   const expectedGameCount = kind === 'legacy' ? 10 : 20
   return Number.isInteger(snapshot.targetRound) && Number.isInteger(snapshot.sourceRound) && typeof snapshot.generatedAt === 'string' && ['live', 'backtest', 'legacy'].includes(kind) && Array.isArray(snapshot.games)
     && snapshot.games.length === expectedGameCount && snapshot.games.every((game) =>
-      ['top', 'bottom', 'mixed', 'dispersion'].includes(game.category) && Number.isInteger(game.index) && isNumberSet(game.numbers) && typeof game.score === 'number',
+      ['top', 'bottom', 'mixed', 'dispersion', 'balanced'].includes(game.category) && Number.isInteger(game.index) && isNumberSet(game.numbers) && typeof game.score === 'number',
     )
 }
 
@@ -95,8 +95,7 @@ export function createRecommendationSnapshot(sets: RecommendationSets, targetRou
     kind,
     algorithmVersion: ALGORITHM_VERSION,
     games: [
-      ...toGames('top', sets.top),
-      ...toGames('dispersion', sets.dispersion),
+      ...toGames('balanced', [...sets.top, ...sets.dispersion]),
     ],
   }
 }

@@ -4,6 +4,8 @@ import { RecommendationCarousel } from './components/RecommendationCarousel'
 import { StoreMap } from './components/StoreMap'
 import { JACKPOT_ODDS, SCORE_WEIGHTS, type RecommendationSets } from './core/analysis'
 import type { RecommendationWorkerResult } from './core/recommendation-worker'
+import type { AdaptiveRecommendation } from './core/adaptive-recommendations'
+import { readPatternCache, savePatternCache } from './core/pattern-cache'
 import { type DrawSyncResult, syncLatestDraw } from './core/draw-data'
 import { type HistoryDataset, type WinnerStoreDataset, syncHistoryDataset, syncWinnerStores } from './core/history-data'
 import { ballTone } from './core/lotto'
@@ -14,7 +16,7 @@ type Theme = 'light' | 'dark'
 type RecommendationTab = keyof RecommendationSets | 'records'
 
 const THEME_KEY = 'lucky45.theme'
-const CATEGORY_LABELS: Record<RecommendationCategory, string> = { top: '상위', bottom: '하위', mixed: '혼합', dispersion: '분산' }
+const CATEGORY_LABELS: Record<RecommendationCategory, string> = { top: '상위', bottom: '하위', mixed: '혼합', dispersion: '분산', balanced: '구간' }
 
 function readTheme(): Theme {
   const saved = localStorage.getItem(THEME_KEY)
@@ -39,7 +41,7 @@ function App() {
   const [loading, setLoading] = useState(true)
   const [recommendationTab, setRecommendationTab] = useState<RecommendationTab>('top')
   const [recommendationHistory, setRecommendationHistory] = useState<RecommendationSnapshot[]>(readRecommendationHistory)
-  const [analysis, setAnalysis] = useState<{ source: HistoryDataset; sets: RecommendationSets } | null>(null)
+  const [analysis, setAnalysis] = useState<{ source: HistoryDataset; result: AdaptiveRecommendation } | null>(null)
   const [analysisError, setAnalysisError] = useState('')
   const sourceDraw = useMemo(() => history?.draws.reduce((latest, draw) => draw.round > latest.round ? draw : latest) ?? null, [history])
 
@@ -50,16 +52,24 @@ function App() {
 
   useEffect(() => {
     let active = true
-    Promise.allSettled([syncLatestDraw(), syncHistoryDataset()]).then(([latestResult, historyResult]) => {
-      if (!active) return
+    let request = 0
+    const refresh = () => {
+      const current = ++request
+      Promise.allSettled([syncLatestDraw(), syncHistoryDataset()]).then(([latestResult, historyResult]) => {
+      if (!active || current !== request) return
       if (latestResult.status === 'fulfilled') setDrawResult(latestResult.value)
       if (historyResult.status === 'fulfilled') {
-        setHistory(historyResult.value)
-        setSelectedRound(Math.max(...historyResult.value.draws.map((draw) => draw.round)))
+        setHistory(previous => JSON.stringify(previous) === JSON.stringify(historyResult.value) ? previous : historyResult.value)
+        setSelectedRound(previous => previous || Math.max(...historyResult.value.draws.map((draw) => draw.round)))
       }
       setLoading(false)
-    })
-    return () => { active = false }
+      })
+    }
+    const onVisible = () => { if (document.visibilityState === 'visible') refresh() }
+    refresh()
+    const timer = window.setInterval(onVisible, 5 * 60_000)
+    document.addEventListener('visibilitychange', onVisible)
+    return () => { active = false; window.clearInterval(timer); document.removeEventListener('visibilitychange', onVisible) }
   }, [])
 
   useEffect(() => {
@@ -88,7 +98,10 @@ function App() {
       worker = new Worker(new URL('./core/recommendation-worker.ts', import.meta.url), { type: 'module' })
       worker.onmessage = (event: MessageEvent<RecommendationWorkerResult>) => {
         if (!active) return
-        if (event.data.sets) setAnalysis({ source: history, sets: event.data.sets })
+        if (event.data.result) {
+          setAnalysis({ source: history, result: event.data.result })
+          savePatternCache(event.data.result.scores)
+        }
         else setAnalysisError(event.data.error || '추천 조합을 계산하지 못했습니다.')
         worker?.terminate()
       }
@@ -97,7 +110,7 @@ function App() {
         if (active) setAnalysisError('추천 조합을 계산하지 못했습니다. 앱을 다시 열어주세요.')
         worker?.terminate()
       }
-      worker.postMessage(history.draws)
+      worker.postMessage({ draws: history.draws, cache: readPatternCache() })
     } catch {
       setAnalysisError('추천 조합을 계산하지 못했습니다. 앱을 다시 열어주세요.')
     }
@@ -106,7 +119,9 @@ function App() {
 
   const latestRound = Math.max(sourceDraw?.round ?? 0, drawResult?.draw.round ?? 0)
   const sourceIsStale = !!sourceDraw && sourceDraw.round < latestRound
-  const computedSets = analysis?.source === history ? analysis?.sets : null
+  const computedResult = analysis?.source === history ? analysis.result : null
+  const computedSets = computedResult?.sets
+  const latestPatternScore = computedResult?.scores.find(r => r.round === drawResult?.draw.round)
   const recommendationOpen = !!sourceDraw && isRecommendationOpen(
     { targetRound: sourceDraw.round + 1, sourceRound: sourceDraw.round, kind: 'live' },
     { latestRound, sourceDate: sourceDraw.date },
@@ -160,6 +175,7 @@ function App() {
           <span className="section-label">LATEST RESULT</span>
           <h2>{loading ? '데이터 동기화 중' : drawResult ? `${drawResult.draw.round}회` : '오프라인'}</h2>
           <p>{drawResult ? `${drawResult.draw.date} · ${drawResult.source === 'remote' ? '최신 데이터' : '저장 데이터'}` : '내장 데이터로 분석을 계속합니다.'}</p>
+          {drawResult && <p className="latest-pattern-score">1등 번호 패턴 점수 <strong>{latestPatternScore ? `${latestPatternScore.score.toFixed(1)}점` : drawResult.draw.round <= 20 ? '과거 20회 필요' : sourceIsStale ? '분석 데이터 갱신 대기' : analysisError ? '계산하지 못했습니다' : '분석 중'}</strong><small>해당 회차 직전 데이터 기준 · 당첨확률과 다름</small></p>}
         </div>
         {drawResult && <div className="latest-band__numbers">
           {drawResult.draw.numbers.map((number) => <NumberBall key={number} number={number} compact />)}
@@ -176,22 +192,30 @@ function App() {
       {menu === 'ranking' && <>
         <section className="analysis-intro">
           <span className="section-label">NEXT · {latestRound ? latestRound + 1 : '—'} ROUND</span>
-          <h2>패턴 상위 10 + 분산 10</h2>
+          <h2>점수 구간별 분산 20</h2>
           <p>전체 빈도 {percent(SCORE_WEIGHTS.frequency)} · 최근 가중 빈도 {percent(SCORE_WEIGHTS.recent)} · 번호 쌍 {percent(SCORE_WEIGHTS.pairs)} · 조합 형태 {percent(SCORE_WEIGHTS.balance)} · 지난 회차 이월 {percent(SCORE_WEIGHTS.carryover)}를 결합했습니다.</p>
+          <p>기본 구간 비율 80%와 최근 26회 당첨 점수 분포 20%를 결합합니다. 새 당첨번호는 빈도·번호 쌍·이월 분석에도 반영하고, 추천 게임끼리 겹치는 번호는 최대 2개로 제한합니다.</p>
+          {recommendationSets && computedResult && <div className="score-allocation" aria-label="다음 회차 점수 구간 배분">
+            <h3>{computedResult.sourceRound + 1}회 점수 구간 배분</h3>
+            <p>최근 {computedResult.recentRounds}회 반영 · 비율은 소수점 반올림, 게임 수는 합계 20개로 배분합니다.</p>
+            <div className="score-allocation__row"><b>점수 구간</b><b>목표 비중</b><b>기본 → 조정</b></div>
+            {computedResult.allocation.filter(row => row.share > 0).map(row => <div className="score-allocation__row" key={row.bin}><span>{row.bin * 10}~{row.bin === 9 ? '100' : `${row.bin * 10 + 9}.9`}점</span><span>{(row.share * 100).toFixed(1)}%</span><strong>{row.baseCount} → {row.count}게임</strong></div>)}
+            <small>한 회차의 결과가 비율을 크게 바꾸지 않으며, 비중이 변해도 반올림한 게임 수는 같을 수 있습니다.</small>
+          </div>}
           <div className="odds-notice"><strong>실제 1등 확률은 모두 동일</strong><span>1 / {JACKPOT_ODDS.toLocaleString('ko-KR')}</span><small>아래 점수는 과거 패턴과의 유사도이며 당첨확률이 아닙니다.</small></div>
         </section>
 
         <section className="results">
           <div className="section-heading section-heading--light"><div><span className="section-label">STARTING GRID</span><h2>추천 조합 20</h2></div><span className="results__count">5 GAMES / PAGE</span></div>
           <div className="recommendation-tabs" role="tablist" aria-label="추천 조합 분류">
-            <button className={recommendationTab === 'top' ? 'is-active' : ''} type="button" role="tab" aria-selected={recommendationTab === 'top'} onClick={() => setRecommendationTab('top')}>상위 10</button>
-            <button className={recommendationTab === 'dispersion' ? 'is-active' : ''} type="button" role="tab" aria-selected={recommendationTab === 'dispersion'} onClick={() => setRecommendationTab('dispersion')}>분산 10</button>
+            <button className={recommendationTab === 'top' ? 'is-active' : ''} type="button" role="tab" aria-selected={recommendationTab === 'top'} onClick={() => setRecommendationTab('top')}>게임 01~10</button>
+            <button className={recommendationTab === 'dispersion' ? 'is-active' : ''} type="button" role="tab" aria-selected={recommendationTab === 'dispersion'} onClick={() => setRecommendationTab('dispersion')}>게임 11~20</button>
             <button className={recommendationTab === 'records' ? 'is-active' : ''} type="button" role="tab" aria-selected={recommendationTab === 'records'} onClick={() => setRecommendationTab('records')}>당첨 이력</button>
           </div>
-          {recommendationTab === 'dispersion' && <p className="recommendation-description">상위 10게임을 유지하고, 추가 게임의 번호 중복을 줄여 당첨 기회를 분산합니다. 카드 점수는 과거 패턴 유사도입니다.</p>}
+          {recommendationTab !== 'records' && <p className="recommendation-description">20게임 전체를 점수 구간에 나눠 담았습니다. 점수가 높은 순서의 추천이 아니며, 카드 점수는 과거 패턴 유사도입니다.</p>}
           {recommendationTab !== 'records' ? !recommendationSets ? <p className="loading-copy" role="status">{recommendationStatus || '역대 데이터를 분석하고 있습니다.'}</p> : <RecommendationCarousel
             combinations={recommendationSets[recommendationTab]}
-            rankLabel={recommendationTab === 'top' ? 'RANK' : 'COVER'}
+            rankLabel="GAME"
           /> : <div className="recommendation-history">
             <div className="recommendation-summary">
               <span>추천 조합 누적 당첨금</span>
@@ -233,6 +257,7 @@ function App() {
           <div><span>{selectedDraw.date}</span><h3>{selectedDraw.round}회 당첨번호</h3></div>
           <div className="draw-detail__numbers">{selectedDraw.numbers.map((number) => <NumberBall key={number} number={number} />)}<span className="plus plus--dark">+</span><NumberBall number={selectedDraw.bonus} /></div>
           <p>1등 {selectedDraw.winners.toLocaleString('ko-KR')}명 · 1인당 {selectedDraw.firstPrize.toLocaleString('ko-KR')}원</p>
+          {computedResult?.scores.find(r => r.round === selectedDraw.round) && <p>1등 번호 패턴 점수 <strong>{computedResult.scores.find(r => r.round === selectedDraw.round)!.score.toFixed(1)}점</strong> · 해당 회차 직전 데이터 기준</p>}
         </article>}
         <div className="winner-heading"><h3>1·2등 당첨 판매점</h3>{winnerStores && <span>{winnerStores.stores.reduce((sum, store) => sum + store.winCount, 0)}건</span>}</div>
         {winnerStatus && <p className="status-message">{winnerStatus}</p>}
