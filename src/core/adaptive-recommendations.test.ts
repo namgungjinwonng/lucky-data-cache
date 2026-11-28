@@ -3,7 +3,8 @@ import { describe, expect, it } from 'vitest'
 import dataset from '../../public/data/history.json'
 import type { HistoricalDraw } from './history-data'
 import { allocateGames, BASE_SHARES, buildAdaptiveRecommendations, makeAllocation, recentPatternScores, scoreBin, trainingSignature } from './adaptive-recommendations'
-const draws = dataset.draws as HistoricalDraw[]
+// 매주 자동 갱신되는 실제 데이터에서 시드 캐시와 같은 1,247회까지만 고정해 기대값이 바뀌지 않게 한다.
+const draws = (dataset.draws as HistoricalDraw[]).filter(d => d.round <= 1247)
 
 describe('점수 구간 자동 배분', () => {
   it('기본 배분은 1·3·6·6·3·1이며 합계 20개다', () => {
@@ -22,7 +23,7 @@ describe('점수 구간 자동 배분', () => {
     expect([9.9, 10, 49.9, 50, 99.9, 100].map(scoreBin)).toEqual([0, 1, 4, 5, 9, 9])
   })
   it('당첨 점수는 직전 회차까지만 학습하고 캐시와 미래 데이터에 영향받지 않는다', async () => {
-    const past = draws.filter(d => d.round <= 1247)
+    const past = draws
     const scores = await recentPatternScores(past)
     expect(scores.at(-1)?.score).toBe(40.3)
     expect(scores.find(r => r.round === 1246)?.score).toBe(60)
