@@ -192,7 +192,7 @@ function App() {
       {menu === 'ranking' && <>
         <section className="analysis-intro">
           <span className="section-label">NEXT · {latestRound ? latestRound + 1 : '—'} ROUND</span>
-          <h2>패턴 점수 {SCORE_MIN}~{SCORE_MAX}점 {GAME_COUNT}게임</h2>
+          <h2>{SCORE_MIN}~{SCORE_MAX}점 {GAME_COUNT}게임</h2>
           <p>전체 빈도 {percent(SCORE_WEIGHTS.frequency)} · 최근 가중 빈도 {percent(SCORE_WEIGHTS.recent)} · 번호 쌍 {percent(SCORE_WEIGHTS.pairs)} · 조합 형태 {percent(SCORE_WEIGHTS.balance)} · 지난 회차 이월 {percent(SCORE_WEIGHTS.carryover)}를 결합했습니다.</p>
           <p>당첨번호가 가장 많이 나온 {SCORE_MIN}~{SCORE_MAX}점 구간에서만 고르고, 추천 게임끼리 겹치는 번호는 최대 2개로 제한합니다.</p>
           {recommendationGames && computedResult && <div className="score-allocation" aria-label="추천 점수 구간">
