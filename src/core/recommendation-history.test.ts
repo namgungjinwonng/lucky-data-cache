@@ -1,6 +1,5 @@
 // 추천 스냅샷 보존과 로또 등수·당첨금 계산을 검증하는 테스트
 import { describe, expect, it } from 'vitest'
-import type { RecommendationSets } from './analysis'
 import { createLegacy1244Snapshot, createRecommendationSnapshot, evaluateGame, evaluateRecommendationHistory, isRecommendationOpen, readRecommendationHistory, saveLegacyRecommendationSnapshot, saveRecommendationSnapshot } from './recommendation-history'
 import type { HistoricalDraw } from './history-data'
 
@@ -22,7 +21,9 @@ const combinations = (count: number, start: number) => Array.from({ length: coun
   components: { frequency: 50, recent: 50, pairs: 50, balance: 50, carryover: 50 },
 }))
 
-const sets: RecommendationSets = { top: combinations(10, 1), dispersion: combinations(10, 15) }
+// 버전 4까지의 20게임 기록 형태와 버전 5의 10게임 형태
+const sets = [...combinations(10, 1), ...combinations(10, 15)]
+const tenGames = combinations(10, 1)
 const pending = { latestRound: 124, sourceDate: '2026-10-03', now: Date.parse('2026-10-05T00:00:00Z') }
 
 describe('추천 당첨 이력', () => {
@@ -51,9 +52,10 @@ describe('추천 당첨 이력', () => {
     const older = createRecommendationSnapshot(sets, 125, 124, '2026-10-04T00:00:00.000Z')
     delete older.algorithmVersion
     saveRecommendationSnapshot(older, pending, storage)
-    const current = createRecommendationSnapshot({ ...sets, dispersion: [...sets.dispersion].reverse() }, 125, 124, '2026-10-05T00:00:00.000Z')
+    const current = createRecommendationSnapshot(tenGames, 125, 124, '2026-10-05T00:00:00.000Z')
     expect(saveRecommendationSnapshot(current, pending, storage)).toEqual([current])
-    expect(current.games.slice(0, 10)).toEqual(older.games.slice(0, 10))
+    expect(current.games).toHaveLength(10)
+    expect(readRecommendationHistory(storage)).toEqual([current])
     expect(current.games.every((g) => g.category === 'balanced')).toBe(true)
   })
 
@@ -74,7 +76,7 @@ describe('추천 당첨 이력', () => {
   it('더 높은 알고리즘 버전의 기록을 낮은 버전으로 되돌리지 않는다', () => {
     const values = new Map<string, string>()
     const storage = { getItem: (key: string) => values.get(key) ?? null, setItem: (key: string, value: string) => { values.set(key, value) } }
-    const newer = { ...createRecommendationSnapshot(sets, 125, 124), algorithmVersion: 5 }
+    const newer = { ...createRecommendationSnapshot(sets, 125, 124), algorithmVersion: 99 }
     saveRecommendationSnapshot(newer, pending, storage)
     expect(saveRecommendationSnapshot(createRecommendationSnapshot(sets, 125, 124), pending, storage)).toEqual([newer])
   })

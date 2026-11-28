@@ -1,44 +1,40 @@
-import { createAnalysisModel, toRanked, type Candidate, type RecommendationSets } from './analysis'
+import { createAnalysisModel, toRanked, type Candidate, type RankedCombination } from './analysis'
 import { selectDispersion } from './dispersion'
 import type { HistoricalDraw } from './history-data'
 import seedScores from './pattern-seed.json'
 
-// 점수 정의는 버전 3의 표시 점수 그대로 유지한다. 추천 배분 버전과 구분한다.
+// 점수 정의는 버전 3의 표시 점수 그대로 유지한다. 추천 선택 방식의 버전과 구분한다.
 export const PATTERN_SCORE_VERSION = 3
-export const BASE_SHARES = [0, 0, .05, .15, .30, .30, .15, .05, 0, 0] as const
 export const RECENT_WINDOW = 26
-export const RECENT_INFLUENCE = .20
+export const GAME_COUNT = 10
+// 21~1,251회 당첨번호의 70.5%가 이 구간이었다. 구간을 고르는 것은 게임당 당첨확률을 바꾸지 않는다.
+export const SCORE_MIN = 40
+export const SCORE_MAX = 65
 export interface PatternScoreRecord { round: number; score: number; signature: string }
-export interface ScoreAllocation { bin: number; baseCount: number; count: number; share: number }
 export interface AdaptiveRecommendation {
-  sets: RecommendationSets
-  allocation: ScoreAllocation[]
+  games: RankedCombination[]
   scores: PatternScoreRecord[]
+  /** 알고 있는 모든 회차(시드 + 최근 계산) 중 당첨번호 점수가 구간 안이었던 비율 */
+  bandShare: number
+  recentInBand: number
   recentRounds: number
   sourceRound: number
 }
-export const scoreBin = (score: number) => Math.min(9, Math.max(0, Math.floor(score / 10)))
+export type PopularityReason = 'allLow' | 'sameRow' | 'carryover' | 'pastFirst'
 
-export function allocateGames(shares: readonly number[], total = 20) {
-  const sum = shares.reduce((a, b) => a + b, 0)
-  if (sum <= 0 || shares.some(x => !Number.isFinite(x) || x < 0)) throw new Error('잘못된 점수 구간 비율입니다.')
-  const exact = shares.map(p => p / sum * total)
-  const counts = exact.map(Math.floor)
-  const order = exact.map((p, i) => ({ i, remainder: p - counts[i] })).sort((a, b) => b.remainder - a.remainder || a.i - b.i)
-  const remaining = total - counts.reduce((a, b) => a + b, 0)
-  for (let i = 0; i < remaining; i++) counts[order[i].i]++
-  return counts
-}
+export const inScoreBand = (score: number) => score >= SCORE_MIN && score < SCORE_MAX
 
-export function makeAllocation(scores: readonly Pick<PatternScoreRecord, 'round' | 'score'>[]) {
-  const recent = [...scores].sort((a, b) => b.round - a.round).slice(0, RECENT_WINDOW)
-  const observed = Array(10).fill(0) as number[]
-  recent.forEach(r => observed[scoreBin(r.score)]++)
-  const weight = RECENT_INFLUENCE * Math.min(1, recent.length / RECENT_WINDOW)
-  const shares = BASE_SHARES.map((base, bin) => base * (1 - weight) + (recent.length ? observed[bin] / recent.length : base) * weight)
-  const counts = allocateGames(shares)
-  const baseCounts = allocateGames(BASE_SHARES)
-  return shares.map((share, bin) => ({ bin, share, count: counts[bin], baseCount: baseCounts[bin] }))
+// 많은 사람이 고르는 모양을 제외해 1~3등 당첨 시 나눠 가질 사람 수를 줄인다. 당첨확률과는 무관하다.
+export function popularityReasons(numbers: readonly number[], lastNumbers: readonly number[], pastFirsts: ReadonlySet<string>): PopularityReason[] {
+  const reasons: PopularityReason[] = []
+  // 생일·날짜에 쓰이는 1~31만으로 된 조합
+  if (Math.max(...numbers) <= 31) reasons.push('allLow')
+  // 7칸 용지의 한 가로줄에 4개 이상 몰린 조합
+  const rows = numbers.map((n) => Math.floor((n - 1) / 7))
+  if (rows.some((row) => rows.filter((r) => r === row).length >= 4)) reasons.push('sameRow')
+  if (numbers.filter((n) => lastNumbers.includes(n)).length >= 3) reasons.push('carryover')
+  if (pastFirsts.has([...numbers].sort((a, b) => a - b).join('-'))) reasons.push('pastFirst')
+  return reasons
 }
 
 export async function trainingSignature(draws: HistoricalDraw[]) {
@@ -77,28 +73,31 @@ function randomForRound(round: number) {
   }
 }
 
-export async function buildAdaptiveRecommendations(draws: HistoricalDraw[], cache: readonly PatternScoreRecord[] = []): Promise<AdaptiveRecommendation> {
-  const scores = await recentPatternScores(draws, cache)
-  const allocation = makeAllocation(scores)
-  const model = createAnalysisModel(draws, 30_000)
-  const buckets: Candidate[][] = Array.from({ length: 10 }, () => [])
-  const bins = new Map<Candidate, number>()
-  const binOf = (c: Candidate) => {
-    const bin = bins.get(c) ?? scoreBin(toRanked([c], model.mean, model.deviation)[0].score)
-    bins.set(c, bin)
-    return bin
+export async function buildAdaptiveRecommendations(
+  draws: HistoricalDraw[], cache: readonly PatternScoreRecord[] = [], avoidPopular = true,
+): Promise<AdaptiveRecommendation> {
+  const ascending = [...draws].sort((a, b) => a.round - b.round)
+  const scores = await recentPatternScores(ascending, cache)
+  const model = createAnalysisModel(ascending, 30_000)
+  const scoreOf = new Map<Candidate, number>(toRanked(model.candidates, model.mean, model.deviation).map((r, i) => [model.candidates[i], r.score]))
+  const candidates = model.candidates.filter(c => inScoreBand(scoreOf.get(c)!))
+  const last = ascending.at(-1)!
+  const pastFirsts = new Set(ascending.map(d => [...d.numbers].sort((a, b) => a - b).join('-')))
+  // 후보를 미리 빼면 분산 선택의 표본 간격이 바뀌므로, 선택 단계에서만 제외한다.
+  // 그래서 제외 대상이 뽑히지 않는 회차는 필터가 없을 때와 같은 10게임이 나온다.
+  const chosen = selectDispersion(candidates, [], randomForRound(last.round + 1), GAME_COUNT,
+    avoidPopular ? (c) => popularityReasons(c.numbers, last.numbers, pastFirsts).length === 0 : undefined)
+  chosen.sort((a, b) => b.rawScore - a.rawScore)
+
+  const known = new Map<number, number>(seedScores.filter(r => r.round <= last.round).map(r => [r.round, r.score]))
+  scores.forEach(r => known.set(r.round, r.score))
+  const knownScores = [...known.values()]
+  return {
+    games: toRanked(chosen, model.mean, model.deviation),
+    scores,
+    bandShare: knownScores.filter(inScoreBand).length / Math.max(1, knownScores.length),
+    recentInBand: scores.filter(r => inScoreBand(r.score)).length,
+    recentRounds: scores.length,
+    sourceRound: last.round,
   }
-  model.candidates.forEach(c => buckets[binOf(c)].push(c))
-  // 구간 안에서도 고득점 끝에 몰리지 않도록 전체 구간에서 고르게 후보를 뽑는다.
-  const candidates = buckets.flatMap((bucket, bin) => !allocation[bin].count ? [] : Array.from(
-    { length: Math.min(200, bucket.length) }, (_, i) => bucket[Math.floor(i * bucket.length / Math.min(200, bucket.length))],
-  ))
-  const sourceRound = Math.max(...draws.map(d => d.round))
-  const chosen = selectDispersion(candidates, [], randomForRound(sourceRound + 1), 20, (c, selected) =>
-    selected.filter(g => binOf(g) === binOf(c)).length < allocation[binOf(c)].count,
-  )
-  chosen.sort((a, b) => binOf(a) - binOf(b) || a.rawScore - b.rawScore)
-  const ranked = toRanked(chosen, model.mean, model.deviation)
-  // 기존 저장 인터페이스의 두 묶음은 화면상의 1~10 / 11~20게임이다.
-  return { sets: { top: ranked.slice(0, 10), dispersion: ranked.slice(10) }, allocation, scores, recentRounds: scores.length, sourceRound }
 }

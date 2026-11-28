@@ -2,9 +2,9 @@
 import { useEffect, useMemo, useState } from 'react'
 import { RecommendationCarousel } from './components/RecommendationCarousel'
 import { StoreMap } from './components/StoreMap'
-import { JACKPOT_ODDS, SCORE_WEIGHTS, type RecommendationSets } from './core/analysis'
+import { JACKPOT_ODDS, SCORE_WEIGHTS } from './core/analysis'
 import type { RecommendationWorkerResult } from './core/recommendation-worker'
-import type { AdaptiveRecommendation } from './core/adaptive-recommendations'
+import { GAME_COUNT, SCORE_MAX, SCORE_MIN, type AdaptiveRecommendation } from './core/adaptive-recommendations'
 import { readPatternCache, savePatternCache } from './core/pattern-cache'
 import { type DrawSyncResult, syncLatestDraw } from './core/draw-data'
 import { type HistoryDataset, type WinnerStoreDataset, syncHistoryDataset, syncWinnerStores } from './core/history-data'
@@ -13,7 +13,7 @@ import { createLegacy1244Snapshot, createRecommendationSnapshot, evaluateRecomme
 
 type AppMenu = 'ranking' | 'history' | 'nearby'
 type Theme = 'light' | 'dark'
-type RecommendationTab = keyof RecommendationSets | 'records'
+type RecommendationTab = 'games' | 'records'
 
 const THEME_KEY = 'lucky45.theme'
 const CATEGORY_LABELS: Record<RecommendationCategory, string> = { top: '상위', bottom: '하위', mixed: '혼합', dispersion: '분산', balanced: '구간' }
@@ -39,7 +39,7 @@ function App() {
   const [winnerStores, setWinnerStores] = useState<WinnerStoreDataset | null>(null)
   const [winnerStatus, setWinnerStatus] = useState('')
   const [loading, setLoading] = useState(true)
-  const [recommendationTab, setRecommendationTab] = useState<RecommendationTab>('top')
+  const [recommendationTab, setRecommendationTab] = useState<RecommendationTab>('games')
   const [recommendationHistory, setRecommendationHistory] = useState<RecommendationSnapshot[]>(readRecommendationHistory)
   const [analysis, setAnalysis] = useState<{ source: HistoryDataset; result: AdaptiveRecommendation } | null>(null)
   const [analysisError, setAnalysisError] = useState('')
@@ -120,13 +120,13 @@ function App() {
   const latestRound = Math.max(sourceDraw?.round ?? 0, drawResult?.draw.round ?? 0)
   const sourceIsStale = !!sourceDraw && sourceDraw.round < latestRound
   const computedResult = analysis?.source === history ? analysis.result : null
-  const computedSets = computedResult?.sets
+  const computedGames = computedResult?.games
   const latestPatternScore = computedResult?.scores.find(r => r.round === drawResult?.draw.round)
   const recommendationOpen = !!sourceDraw && isRecommendationOpen(
     { targetRound: sourceDraw.round + 1, sourceRound: sourceDraw.round, kind: 'live' },
     { latestRound, sourceDate: sourceDraw.date },
   )
-  const recommendationSets = !sourceIsStale && recommendationOpen ? computedSets : null
+  const recommendationGames = !sourceIsStale && recommendationOpen ? computedGames : null
   const recommendationStatus = sourceIsStale ? '최신 회차의 분석 데이터가 아직 없습니다. 앱을 다시 열어 갱신해주세요.'
     : sourceDraw && !recommendationOpen ? '이번 회차 추천은 마감되었습니다. 저장된 추천은 당첨 이력에서 확인해주세요.'
     : !loading && !history ? '분석 데이터를 불러오지 못했습니다. 앱을 다시 열어주세요.' : analysisError
@@ -137,13 +137,13 @@ function App() {
   )
 
   useEffect(() => {
-    if (!sourceDraw || !recommendationSets) return
+    if (!sourceDraw || !recommendationGames) return
     const sourceRound = sourceDraw.round
-    const snapshot = createRecommendationSnapshot(recommendationSets, sourceRound + 1, sourceRound)
+    const snapshot = createRecommendationSnapshot(recommendationGames, sourceRound + 1, sourceRound)
     let nextHistory = saveRecommendationSnapshot(snapshot, { latestRound, sourceDate: sourceDraw.date })
     if (sourceRound >= 1244) nextHistory = saveLegacyRecommendationSnapshot(createLegacy1244Snapshot())
     setRecommendationHistory(nextHistory)
-  }, [sourceDraw, latestRound, recommendationSets])
+  }, [sourceDraw, latestRound, recommendationGames])
 
   const moveRound = (delta: number) => {
     setSelectedRound((round) => Math.min(latestRound, Math.max(1, round + delta)))
@@ -184,7 +184,7 @@ function App() {
       </section>
 
       <nav className="app-menu" aria-label="주요 메뉴">
-        <button className={menu === 'ranking' ? 'is-active' : ''} type="button" onClick={() => setMenu('ranking')}><span>01</span>추천 20</button>
+        <button className={menu === 'ranking' ? 'is-active' : ''} type="button" onClick={() => setMenu('ranking')}><span>01</span>추천 {GAME_COUNT}</button>
         <button className={menu === 'history' ? 'is-active' : ''} type="button" onClick={() => setMenu('history')}><span>02</span>회차·당첨점</button>
         <button className={menu === 'nearby' ? 'is-active' : ''} type="button" onClick={() => setMenu('nearby')}><span>03</span>주변 판매점</button>
       </nav>
@@ -192,29 +192,27 @@ function App() {
       {menu === 'ranking' && <>
         <section className="analysis-intro">
           <span className="section-label">NEXT · {latestRound ? latestRound + 1 : '—'} ROUND</span>
-          <h2>점수 구간별 분산 20</h2>
+          <h2>{SCORE_MIN}~{SCORE_MAX}점 {GAME_COUNT}게임</h2>
           <p>전체 빈도 {percent(SCORE_WEIGHTS.frequency)} · 최근 가중 빈도 {percent(SCORE_WEIGHTS.recent)} · 번호 쌍 {percent(SCORE_WEIGHTS.pairs)} · 조합 형태 {percent(SCORE_WEIGHTS.balance)} · 지난 회차 이월 {percent(SCORE_WEIGHTS.carryover)}를 결합했습니다.</p>
-          <p>기본 구간 비율 80%와 최근 26회 당첨 점수 분포 20%를 결합합니다. 새 당첨번호는 빈도·번호 쌍·이월 분석에도 반영하고, 추천 게임끼리 겹치는 번호는 최대 2개로 제한합니다.</p>
-          {recommendationSets && computedResult && <div className="score-allocation" aria-label="다음 회차 점수 구간 배분">
-            <h3>{computedResult.sourceRound + 1}회 점수 구간 배분</h3>
-            <p>최근 {computedResult.recentRounds}회 반영 · 비율은 소수점 반올림, 게임 수는 합계 20개로 배분합니다.</p>
-            <div className="score-allocation__row"><b>점수 구간</b><b>목표 비중</b><b>기본 → 조정</b></div>
-            {computedResult.allocation.filter(row => row.share > 0).map(row => <div className="score-allocation__row" key={row.bin}><span>{row.bin * 10}~{row.bin === 9 ? '100' : `${row.bin * 10 + 9}.9`}점</span><span>{(row.share * 100).toFixed(1)}%</span><strong>{row.baseCount} → {row.count}게임</strong></div>)}
-            <small>한 회차의 결과가 비율을 크게 바꾸지 않으며, 비중이 변해도 반올림한 게임 수는 같을 수 있습니다.</small>
+          <p>당첨번호가 가장 많이 나온 {SCORE_MIN}~{SCORE_MAX}점 구간에서만 고르고, 추천 게임끼리 겹치는 번호는 최대 2개로 제한합니다.</p>
+          {recommendationGames && computedResult && <div className="score-allocation" aria-label="추천 점수 구간">
+            <h3>{computedResult.sourceRound + 1}회 추천 구간</h3>
+            <div className="score-allocation__row"><span>역대 당첨번호 중 구간 비율</span><strong>{(computedResult.bandShare * 100).toFixed(1)}%</strong></div>
+            <div className="score-allocation__row"><span>최근 {computedResult.recentRounds}회 중 구간 안</span><strong>{computedResult.recentInBand}회</strong></div>
+            <small>인기 조합(1~31만 사용, 용지 한 줄 4개 이상, 지난주 번호 3개 이상, 역대 1등 조합)은 제외합니다. 당첨확률이 아니라 당첨 시 나눠 가질 사람 수를 줄이기 위한 것입니다.</small>
           </div>}
           <div className="odds-notice"><strong>실제 1등 확률은 모두 동일</strong><span>1 / {JACKPOT_ODDS.toLocaleString('ko-KR')}</span><small>아래 점수는 과거 패턴과의 유사도이며 당첨확률이 아닙니다.</small></div>
         </section>
 
         <section className="results">
-          <div className="section-heading section-heading--light"><div><span className="section-label">STARTING GRID</span><h2>추천 조합 20</h2></div><span className="results__count">5 GAMES / PAGE</span></div>
+          <div className="section-heading section-heading--light"><div><span className="section-label">STARTING GRID</span><h2>추천 조합 {GAME_COUNT}</h2></div><span className="results__count">5 GAMES / PAGE</span></div>
           <div className="recommendation-tabs" role="tablist" aria-label="추천 조합 분류">
-            <button className={recommendationTab === 'top' ? 'is-active' : ''} type="button" role="tab" aria-selected={recommendationTab === 'top'} onClick={() => setRecommendationTab('top')}>게임 01~10</button>
-            <button className={recommendationTab === 'dispersion' ? 'is-active' : ''} type="button" role="tab" aria-selected={recommendationTab === 'dispersion'} onClick={() => setRecommendationTab('dispersion')}>게임 11~20</button>
+            <button className={recommendationTab === 'games' ? 'is-active' : ''} type="button" role="tab" aria-selected={recommendationTab === 'games'} onClick={() => setRecommendationTab('games')}>추천 {GAME_COUNT}게임</button>
             <button className={recommendationTab === 'records' ? 'is-active' : ''} type="button" role="tab" aria-selected={recommendationTab === 'records'} onClick={() => setRecommendationTab('records')}>당첨 이력</button>
           </div>
-          {recommendationTab !== 'records' && <p className="recommendation-description">20게임 전체를 점수 구간에 나눠 담았습니다. 점수가 높은 순서의 추천이 아니며, 카드 점수는 과거 패턴 유사도입니다.</p>}
-          {recommendationTab !== 'records' ? !recommendationSets ? <p className="loading-copy" role="status">{recommendationStatus || '역대 데이터를 분석하고 있습니다.'}</p> : <RecommendationCarousel
-            combinations={recommendationSets[recommendationTab]}
+          {recommendationTab !== 'records' && <p className="recommendation-description">{SCORE_MIN}~{SCORE_MAX}점 구간에서 고른 {GAME_COUNT}게임을 점수 순으로 보여줍니다. 카드 점수는 과거 패턴 유사도이며 당첨확률이 아닙니다.</p>}
+          {recommendationTab !== 'records' ? !recommendationGames ? <p className="loading-copy" role="status">{recommendationStatus || '역대 데이터를 분석하고 있습니다.'}</p> : <RecommendationCarousel
+            combinations={recommendationGames}
             rankLabel="GAME"
           /> : <div className="recommendation-history">
             <div className="recommendation-summary">

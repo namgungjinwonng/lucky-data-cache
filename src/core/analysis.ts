@@ -5,7 +5,7 @@ import { selectDispersion } from './dispersion'
 export const JACKPOT_ODDS = 8_145_060
 
 // 분석 가중치나 후보 생성 방식이 바뀌면 올려서 아직 추첨 전인 회차의 저장 추천을 새 결과로 교체한다.
-export const ALGORITHM_VERSION = 4
+export const ALGORITHM_VERSION = 5
 
 export const SCORE_WEIGHTS = { frequency: 0.21, recent: 0.24, pairs: 0.22, balance: 0.23, carryover: 0.1 } as const
 
