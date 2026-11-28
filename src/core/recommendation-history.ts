@@ -1,5 +1,5 @@
 // 회차별 추천 조합 스냅샷을 기기에 보존하고 공식 당첨 결과와 대조하는 모듈
-import { ALGORITHM_VERSION, type RankedCombination, type RecommendationSets } from './analysis'
+import { ALGORITHM_VERSION, type RankedCombination } from './analysis'
 import type { HistoricalDraw, PrizeAmounts } from './history-data'
 
 // bottom/mixed는 이전 버전의 저장 기록을 그대로 읽기 위해 유지한다.
@@ -71,9 +71,10 @@ function isSnapshot(value: unknown): value is RecommendationSnapshot {
   if (!value || typeof value !== 'object') return false
   const snapshot = value as Partial<RecommendationSnapshot>
   const kind = snapshot.kind ?? 'live'
-  const expectedGameCount = kind === 'legacy' ? 10 : 20
+  // 버전 4까지 live 기록은 20게임, 버전 5부터 10게임이다.
+  const gameCounts = kind === 'legacy' ? [10] : [10, 20]
   return Number.isInteger(snapshot.targetRound) && Number.isInteger(snapshot.sourceRound) && typeof snapshot.generatedAt === 'string' && ['live', 'backtest', 'legacy'].includes(kind) && Array.isArray(snapshot.games)
-    && snapshot.games.length === expectedGameCount && snapshot.games.every((game) =>
+    && gameCounts.includes(snapshot.games.length) && snapshot.games.every((game) =>
       ['top', 'bottom', 'mixed', 'dispersion', 'balanced'].includes(game.category) && Number.isInteger(game.index) && isNumberSet(game.numbers) && typeof game.score === 'number',
     )
 }
@@ -87,16 +88,14 @@ function toGames(category: RecommendationCategory, combinations: RankedCombinati
   }))
 }
 
-export function createRecommendationSnapshot(sets: RecommendationSets, targetRound: number, sourceRound: number, generatedAt = new Date().toISOString(), kind: RecommendationSnapshot['kind'] = 'live'): RecommendationSnapshot {
+export function createRecommendationSnapshot(combinations: RankedCombination[], targetRound: number, sourceRound: number, generatedAt = new Date().toISOString(), kind: RecommendationSnapshot['kind'] = 'live'): RecommendationSnapshot {
   return {
     targetRound,
     sourceRound,
     generatedAt,
     kind,
     algorithmVersion: ALGORITHM_VERSION,
-    games: [
-      ...toGames('balanced', [...sets.top, ...sets.dispersion]),
-    ],
+    games: toGames('balanced', combinations),
   }
 }
 
